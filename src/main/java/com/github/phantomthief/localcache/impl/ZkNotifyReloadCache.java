@@ -4,6 +4,9 @@
 package com.github.phantomthief.localcache.impl;
 
 import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -12,6 +15,7 @@ import org.apache.curator.framework.CuratorFramework;
 import com.github.phantomthief.localcache.CacheFactory;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
  * @author w.vela
@@ -26,17 +30,20 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final int maxRandomSleepOnNotifyReload;
     private final Random random;
     private final ZkBroadcaster zkBroadcaster;
+    private final long scheduleRunDruation;
 
     private volatile T cachedObject;
 
     private ZkNotifyReloadCache(CacheFactory<T> cacheFactory, String notifyZkPath,
-            Consumer<T> oldCleanup, int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster) {
+            Consumer<T> oldCleanup, int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster,
+            long scheduleRunDruation) {
         this.cacheFactory = wrapTry(cacheFactory);
         this.notifyZkPath = notifyZkPath;
         this.oldCleanup = wrapTry(oldCleanup);
         this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReload;
         this.random = maxRandomSleepOnNotifyReload > 0 ? new Random() : null;
         this.zkBroadcaster = zkBroadcaster;
+        this.scheduleRunDruation = scheduleRunDruation;
     }
 
     /* (non-Javadoc)
@@ -74,6 +81,24 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                     }
                 }
             });
+            if (scheduleRunDruation > 0) {
+                ScheduledExecutorService scheduledExecutorService = Executors
+                        .newScheduledThreadPool(1,
+                                new ThreadFactoryBuilder() //
+                                        .setPriority(Thread.MIN_PRIORITY) //
+                                        .setNameFormat("zkAutoReloadThread-" + notifyZkPath + "-%d") //
+                                        .build());
+                scheduledExecutorService.scheduleWithFixedDelay(() -> {
+                    T newObject = cacheFactory.get();
+                    if (newObject != null) {
+                        T old = cachedObject;
+                        cachedObject = newObject;
+                        if (oldCleanup != null) {
+                            oldCleanup.accept(old);
+                        }
+                    }
+                } , scheduleRunDruation, scheduleRunDruation, TimeUnit.MILLISECONDS);
+            }
         }
         return obj;
     }
@@ -130,6 +155,12 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private Consumer<T> oldCleanup;
         private int maxRandomSleepOnNotifyReload;
         private ZkBroadcaster zkBroadcaster;
+        private long scheduleRunDruation;
+
+        public Builder<T> enableAutoReload(long timeDuration, TimeUnit unit) {
+            scheduleRunDruation = unit.toMillis(timeDuration);
+            return this;
+        }
 
         public Builder<T> withZkBroadcaster(ZkBroadcaster zkBroadcaster) {
             this.zkBroadcaster = zkBroadcaster;
@@ -169,7 +200,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         public ZkNotifyReloadCache<T> build() {
             ensure();
             return new ZkNotifyReloadCache<>(cacheFactory, notifyZkPath, oldCleanup,
-                    maxRandomSleepOnNotifyReload, zkBroadcaster);
+                    maxRandomSleepOnNotifyReload, zkBroadcaster, scheduleRunDruation);
         }
 
         private void ensure() {
