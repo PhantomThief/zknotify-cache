@@ -1,4 +1,4 @@
-zknotify-cache
+zknotify-cache [![Build Status](https://travis-ci.org/PhantomThief/zknotify-cache.svg)](https://travis-ci.org/PhantomThief/zknotify-cache)
 =======================
 
 ZooKeeper通知更新的本地缓存
