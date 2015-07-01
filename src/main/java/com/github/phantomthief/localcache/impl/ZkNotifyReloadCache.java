@@ -52,7 +52,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     @Override
     public T get() {
         if (cachedObject == null) {
-            synchronized (this) {
+            synchronized (ZkNotifyReloadCache.this) {
                 if (cachedObject == null) {
                     cachedObject = init();
                 }
@@ -72,12 +72,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                         // i don't care.
                     }
                 }
-                T newObject = cacheFactory.get();
-                if (newObject != null) {
-                    T old = cachedObject;
-                    cachedObject = newObject;
-                    if (oldCleanup != null) {
-                        oldCleanup.accept(old);
+                synchronized (ZkNotifyReloadCache.this) {
+                    T newObject = cacheFactory.get();
+                    if (newObject != null) {
+                        T old = cachedObject;
+                        cachedObject = newObject;
+                        if (oldCleanup != null) {
+                            oldCleanup.accept(old);
+                        }
                     }
                 }
             });
@@ -89,12 +91,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                                         .setNameFormat("zkAutoReloadThread-" + notifyZkPath + "-%d") //
                                         .build());
                 scheduledExecutorService.scheduleWithFixedDelay(() -> {
-                    T newObject = cacheFactory.get();
-                    if (newObject != null) {
-                        T old = cachedObject;
-                        cachedObject = newObject;
-                        if (oldCleanup != null) {
-                            oldCleanup.accept(old);
+                    synchronized (ZkNotifyReloadCache.this) {
+                        T newObject = cacheFactory.get();
+                        if (newObject != null) {
+                            T old = cachedObject;
+                            cachedObject = newObject;
+                            if (oldCleanup != null) {
+                                oldCleanup.accept(old);
+                            }
                         }
                     }
                 } , scheduleRunDruation, scheduleRunDruation, TimeUnit.MILLISECONDS);
