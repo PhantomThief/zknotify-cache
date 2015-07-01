@@ -31,12 +31,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private ZkNotifyReloadCache(CacheFactory<T> cacheFactory, String notifyZkPath,
             Consumer<T> oldCleanup, int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster) {
-        if (cacheFactory == null) {
-            throw new IllegalArgumentException("no cache factory.");
-        }
-        if (notifyZkPath == null) {
-            throw new IllegalArgumentException("no notify zk path.");
-        }
         this.cacheFactory = wrapTry(cacheFactory);
         this.notifyZkPath = notifyZkPath;
         this.oldCleanup = wrapTry(oldCleanup);
