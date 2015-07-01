@@ -10,6 +10,7 @@ ZooKeeper通知更新的本地缓存
 
 ## Get Started
 
+* Stable版本
 ```xml
 <dependency>
     <groupId>com.github.phantomthief</groupId>
@@ -18,30 +19,40 @@ ZooKeeper通知更新的本地缓存
 </dependency>
 ```
 
+* Development版本
+```xml
+<dependency>
+    <groupId>com.github.phantomthief</groupId>
+    <artifactId>zknotify-cache</artifactId>
+    <version>0.1.1-SNAPSHOT</version>
+</dependency>
+```
+
 ```Java
 ReloadableCache<List<String>> cache = ZkNotifyReloadCache.<List<String>> newBuilder() //
-				.withCacheFactory(this::buildFromSource) //
-				.withNotifyZkPath("/notifyPath1") //
-				.withCuratorFactory(this::getCuratorFactory) //
-				.withMaxRandomSleepOnNotifyReload(30*1000) //
-				.withOldCleanup(this::cleanup) //
+				.withCacheFactory(this::buildFromSource) // 配置cache构建方法，必须
+				.withNotifyZkPath("/notifyPath1") // zk监听变更的路径，必须
+				.withCuratorFactory(this::getCuratorFactory) // 提供zkClient的工场方法，必须
+				.withMaxRandomSleepOnNotifyReload(30*1000) // zk通知reload时随机最大延迟时间，可选
+				.withOldCleanup(this::cleanup) // 旧数据的清理方法，可选
+				.enableAutoReload(1, TimeUnit.MINUTES) // 打开自动定时加载，可选
 				.build();
 
-List<String> content = cache.get();
+List<String> content = cache.get(); // 获取内容，第一次调用本方法时才初始化
 
-cache.reload(); // notify all inited cache to reload
+cache.reload(); // 通过zk通知所有节点更新
 ```
 
 ```Java
 private List<String> buildFromSource() {
-	// load data from data source
+	// 从数据源加载数据
 }
 
 private CuratorFramework getCuratorFactory() {
-	// return a started curator framework
+	// 返回一个初始化好的CuratorFramework
 }
 
 private void cleanup(List<String> list) {
-	// cleanup old resource
+	// 清理旧对象操作
 }
 ```
