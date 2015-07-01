@@ -9,6 +9,7 @@ import java.util.function.Supplier;
 
 import org.apache.curator.framework.CuratorFramework;
 
+import com.github.phantomthief.localcache.CacheFactory;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
 
@@ -28,7 +29,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private volatile T cachedObject;
 
-    private ZkNotifyReloadCache(Supplier<T> cacheFactory, String notifyZkPath,
+    private ZkNotifyReloadCache(CacheFactory<T> cacheFactory, String notifyZkPath,
             Consumer<T> oldCleanup, int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster) {
         if (cacheFactory == null) {
             throw new IllegalArgumentException("no cache factory.");
@@ -91,7 +92,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         zkBroadcaster.broadcast(notifyZkPath, String.valueOf(System.currentTimeMillis()));
     }
 
-    private Supplier<T> wrapTry(Supplier<T> supplier) {
+    private Supplier<T> wrapTry(CacheFactory<T> supplier) {
         return () -> {
             try {
                 return supplier.get();
@@ -115,8 +116,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         };
     }
 
-    public static final <T> ZkNotifyReloadCache<T> of(Supplier<T> cacheFactory, String notifyZkPath,
-            Supplier<CuratorFramework> curatorFactory) {
+    public static final <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory,
+            String notifyZkPath, Supplier<CuratorFramework> curatorFactory) {
         return ZkNotifyReloadCache.<T> newBuilder() //
                 .withCacheFactory(cacheFactory) //
                 .withNotifyZkPath(notifyZkPath) //
@@ -130,7 +131,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     public static final class Builder<T> {
 
-        private Supplier<T> cacheFactory;
+        private CacheFactory<T> cacheFactory;
         private String notifyZkPath;
         private Consumer<T> oldCleanup;
         private int maxRandomSleepOnNotifyReload;
@@ -151,7 +152,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
-        public Builder<T> withCacheFactory(Supplier<T> cacheFactory) {
+        public Builder<T> withCacheFactory(CacheFactory<T> cacheFactory) {
             this.cacheFactory = cacheFactory;
             return this;
         }
