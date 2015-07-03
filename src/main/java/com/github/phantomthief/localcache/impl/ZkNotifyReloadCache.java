@@ -25,6 +25,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(getClass());
 
     private final Supplier<T> cacheFactory;
+    private final Supplier<T> firstAccessFailFactory;
     private final String notifyZkPath;
     private final Consumer<T> oldCleanup;
     private final int maxRandomSleepOnNotifyReload;
@@ -34,10 +35,12 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private volatile T cachedObject;
 
-    private ZkNotifyReloadCache(CacheFactory<T> cacheFactory, String notifyZkPath,
-            Consumer<T> oldCleanup, int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster,
+    private ZkNotifyReloadCache(CacheFactory<T> cacheFactory,
+            CacheFactory<T> firstAccessFailFactory, String notifyZkPath, Consumer<T> oldCleanup,
+            int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster,
             long scheduleRunDruation) {
         this.cacheFactory = wrapTry(cacheFactory);
+        this.firstAccessFailFactory = wrapTry(firstAccessFailFactory);
         this.notifyZkPath = notifyZkPath;
         this.oldCleanup = wrapTry(oldCleanup);
         this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReload;
@@ -63,6 +66,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private T init() {
         T obj = cacheFactory.get();
+        if (obj == null && firstAccessFailFactory != null) {
+            obj = firstAccessFailFactory.get();
+        }
         if (obj != null) {
             zkBroadcaster.subscribe(notifyZkPath, c -> {
                 if (maxRandomSleepOnNotifyReload > 0) {
@@ -116,6 +122,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     }
 
     private Supplier<T> wrapTry(CacheFactory<T> supplier) {
+        if (supplier == null) {
+            return null;
+        }
         return () -> {
             try {
                 return supplier.get();
@@ -155,6 +164,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     public static final class Builder<T> {
 
         private CacheFactory<T> cacheFactory;
+        private CacheFactory<T> firstAccessFailFactory;
         private String notifyZkPath;
         private Consumer<T> oldCleanup;
         private int maxRandomSleepOnNotifyReload;
@@ -186,6 +196,18 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
+        public Builder<T> firstAccessFailObject(T obj) {
+            if (obj != null) {
+                this.firstAccessFailFactory = () -> obj;
+            }
+            return this;
+        }
+
+        public Builder<T> firstAccessFailFactory(CacheFactory<T> firstAccessFailFactory) {
+            this.firstAccessFailFactory = firstAccessFailFactory;
+            return this;
+        }
+
         public Builder<T> withNotifyZkPath(String notifyZkPath) {
             this.notifyZkPath = notifyZkPath;
             return this;
@@ -203,8 +225,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
         public ZkNotifyReloadCache<T> build() {
             ensure();
-            return new ZkNotifyReloadCache<>(cacheFactory, notifyZkPath, oldCleanup,
-                    maxRandomSleepOnNotifyReload, zkBroadcaster, scheduleRunDruation);
+            return new ZkNotifyReloadCache<>(cacheFactory, firstAccessFailFactory, notifyZkPath,
+                    oldCleanup, maxRandomSleepOnNotifyReload, zkBroadcaster, scheduleRunDruation);
         }
 
         private void ensure() {
