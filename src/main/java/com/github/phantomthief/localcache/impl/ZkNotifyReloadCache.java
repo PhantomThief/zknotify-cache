@@ -70,7 +70,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             obj = firstAccessFailFactory.get();
         }
         if (obj != null) {
-            zkBroadcaster.subscribe(notifyZkPath, c -> {
+            zkBroadcaster.subscribe(notifyZkPath, () -> {
                 if (maxRandomSleepOnNotifyReload > 0) {
                     try {
                         Thread.sleep(random.nextInt(maxRandomSleepOnNotifyReload));

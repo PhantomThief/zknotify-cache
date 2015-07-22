@@ -27,7 +27,7 @@ public class ZkBroadcaster {
 
     private final Supplier<CuratorFramework> curatorFactory;
     private final String zkPrefix;
-    private final ConcurrentMap<String, Set<ZkSubscriber>> subscribeMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Set<Runnable>> subscribeMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, NodeCache> nodeCacheMap = new ConcurrentHashMap<>();
 
     /**
@@ -46,11 +46,11 @@ public class ZkBroadcaster {
         this(curatorFactory, DEFAULT_ZK_PREFIX);
     }
 
-    public void subscribe(String path, ZkSubscriber subscriber) {
+    public void subscribe(String path, Runnable subscriber) {
         if (path == null || subscriber == null) {
             throw new NullPointerException();
         }
-        Set<ZkSubscriber> subscribers = subscribeMap.compute(path, (k, oldSet) -> {
+        Set<Runnable> subscribers = subscribeMap.compute(path, (k, oldSet) -> {
             if (oldSet == null) {
                 oldSet = new HashSet<>();
             }
@@ -71,7 +71,7 @@ public class ZkBroadcaster {
             nodeCache.getListenable().addListener(() -> {
                 subscribers.parallelStream().forEach(s -> {
                     try {
-                        s.handle(nodeCache.getCurrentData().getData());
+                        s.run();
                     } catch (Throwable e) {
                         logger.error("Ops. fail to do handle for:{}->{}", zkPrefix, s, e);
                     }
