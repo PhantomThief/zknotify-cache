@@ -14,6 +14,7 @@ import org.apache.curator.framework.recipes.cache.NodeCache;
 import org.apache.curator.utils.ZKPaths;
 import org.apache.zookeeper.KeeperException;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 
 /**
@@ -47,9 +48,8 @@ public class ZkBroadcaster {
     }
 
     public void subscribe(String path, Runnable subscriber) {
-        if (path == null || subscriber == null) {
-            throw new NullPointerException();
-        }
+        Preconditions.checkNotNull(path);
+        Preconditions.checkNotNull(subscriber);
         Set<Runnable> subscribers = subscribeMap.compute(path, (k, oldSet) -> {
             if (oldSet == null) {
                 oldSet = new HashSet<>();

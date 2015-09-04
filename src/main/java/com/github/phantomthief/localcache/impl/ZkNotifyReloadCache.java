@@ -15,6 +15,7 @@ import org.apache.curator.framework.CuratorFramework;
 import com.github.phantomthief.localcache.CacheFactory;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
+import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
@@ -230,15 +231,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         private void ensure() {
-            if (cacheFactory == null) {
-                throw new IllegalArgumentException("no cache factory.");
-            }
-            if (notifyZkPath == null) {
-                throw new IllegalArgumentException("no notify zk path.");
-            }
-            if (zkBroadcaster == null) {
-                throw new IllegalArgumentException("no zk broadcaster.");
-            }
+            Preconditions.checkNotNull(cacheFactory, "no cache factory.");
+            Preconditions.checkNotNull(notifyZkPath, "no notify zk path.");
+            Preconditions.checkNotNull(zkBroadcaster, "no zk broadcaster.");
         }
 
     }
