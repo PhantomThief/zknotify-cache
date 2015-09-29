@@ -3,6 +3,9 @@
  */
 package com.github.phantomthief.localcache.impl;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+
 import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -15,7 +18,6 @@ import org.apache.curator.framework.CuratorFramework;
 import com.github.phantomthief.localcache.CacheFactory;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
@@ -75,8 +77,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                 if (maxRandomSleepOnNotifyReload > 0) {
                     try {
                         Thread.sleep(random.nextInt(maxRandomSleepOnNotifyReload));
-                    } catch (Exception idontcare) {
-                        // i don't care.
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
                 }
                 synchronized (ZkNotifyReloadCache.this) {
@@ -103,12 +105,12 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                         if (newObject != null) {
                             T old = cachedObject;
                             cachedObject = newObject;
-                            if (oldCleanup != null) {
+                            if (oldCleanup != null || old != cachedObject) {
                                 oldCleanup.accept(old);
                             }
                         }
                     }
-                } , scheduleRunDruation, scheduleRunDruation, TimeUnit.MILLISECONDS);
+                } , scheduleRunDruation, scheduleRunDruation, MILLISECONDS);
             }
         }
         return obj;
@@ -231,9 +233,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         private void ensure() {
-            Preconditions.checkNotNull(cacheFactory, "no cache factory.");
-            Preconditions.checkNotNull(notifyZkPath, "no notify zk path.");
-            Preconditions.checkNotNull(zkBroadcaster, "no zk broadcaster.");
+            checkNotNull(cacheFactory, "no cache factory.");
+            checkNotNull(notifyZkPath, "no notify zk path.");
+            checkNotNull(zkBroadcaster, "no zk broadcaster.");
         }
 
     }

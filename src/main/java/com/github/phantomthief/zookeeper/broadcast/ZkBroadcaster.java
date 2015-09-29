@@ -3,6 +3,8 @@
  */
 package com.github.phantomthief.zookeeper.broadcast;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,7 +16,6 @@ import org.apache.curator.framework.recipes.cache.NodeCache;
 import org.apache.curator.utils.ZKPaths;
 import org.apache.zookeeper.KeeperException;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 
 /**
@@ -48,8 +49,9 @@ public class ZkBroadcaster {
     }
 
     public void subscribe(String path, Runnable subscriber) {
-        Preconditions.checkNotNull(path);
-        Preconditions.checkNotNull(subscriber);
+        checkNotNull(path);
+        checkNotNull(subscriber);
+
         Set<Runnable> subscribers = subscribeMap.compute(path, (k, oldSet) -> {
             if (oldSet == null) {
                 oldSet = new HashSet<>();
