@@ -4,6 +4,7 @@
 package com.github.phantomthief.localcache.impl;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import java.util.Random;
@@ -73,25 +74,24 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             obj = firstAccessFailFactory.get();
         }
         if (obj != null) {
-            zkBroadcaster.subscribe(notifyZkPath, () -> {
-                if (maxRandomSleepOnNotifyReload > 0) {
-                    try {
-                        Thread.sleep(random.nextInt(maxRandomSleepOnNotifyReload));
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+            if (zkBroadcaster != null && notifyZkPath != null) {
+                zkBroadcaster.subscribe(notifyZkPath, () -> {
+                    if (maxRandomSleepOnNotifyReload > 0) {
+                        sleepUninterruptibly(random.nextInt(maxRandomSleepOnNotifyReload),
+                                MILLISECONDS);
                     }
-                }
-                synchronized (ZkNotifyReloadCache.this) {
-                    T newObject = cacheFactory.get();
-                    if (newObject != null) {
-                        T old = cachedObject;
-                        cachedObject = newObject;
-                        if (oldCleanup != null) {
-                            oldCleanup.accept(old);
+                    synchronized (ZkNotifyReloadCache.this) {
+                        T newObject = cacheFactory.get();
+                        if (newObject != null) {
+                            T old = cachedObject;
+                            cachedObject = newObject;
+                            if (oldCleanup != null && old != cachedObject) {
+                                oldCleanup.accept(old);
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
             if (scheduleRunDruation > 0) {
                 ScheduledExecutorService scheduledExecutorService = Executors
                         .newScheduledThreadPool(1,
@@ -121,7 +121,11 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
      */
     @Override
     public void reload() {
-        zkBroadcaster.broadcast(notifyZkPath, String.valueOf(System.currentTimeMillis()));
+        if (zkBroadcaster != null && notifyZkPath != null) {
+            zkBroadcaster.broadcast(notifyZkPath, String.valueOf(System.currentTimeMillis()));
+        } else {
+            logger.warn("no zk broadcast or notify zk path found. ignore reload.");
+        }
     }
 
     private Supplier<T> wrapTry(CacheFactory<T> supplier) {
@@ -234,10 +238,10 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
         private void ensure() {
             checkNotNull(cacheFactory, "no cache factory.");
-            checkNotNull(notifyZkPath, "no notify zk path.");
-            checkNotNull(zkBroadcaster, "no zk broadcaster.");
+            if (notifyZkPath != null) {
+                checkNotNull(zkBroadcaster, "no zk broadcaster.");
+            }
         }
-
     }
 
 }
