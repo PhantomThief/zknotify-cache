@@ -6,6 +6,7 @@ package com.github.phantomthief.localcache.impl;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.slf4j.LoggerFactory.getLogger;
 
 import java.util.Random;
 import java.util.concurrent.Executors;
@@ -26,7 +27,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
  */
 public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
-    private final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(getClass());
+    private static org.slf4j.Logger logger = getLogger(ZkNotifyReloadCache.class);
 
     private final Supplier<T> cacheFactory;
     private final Supplier<T> firstAccessFailFactory;
@@ -144,7 +145,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private Consumer<T> wrapTry(Consumer<T> consumer) {
         if (consumer == null) {
-            return null;
+            return t -> {};
         }
         return t -> {
             try {
