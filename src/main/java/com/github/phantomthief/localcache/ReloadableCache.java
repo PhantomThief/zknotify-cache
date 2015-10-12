@@ -11,4 +11,6 @@ import java.util.function.Supplier;
 public interface ReloadableCache<T> extends Supplier<T> {
 
     public void reload();
+
+    public void reloadLocal();
 }

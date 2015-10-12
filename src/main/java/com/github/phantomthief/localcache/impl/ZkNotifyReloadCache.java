@@ -129,6 +129,22 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
     }
 
+    @Override
+    public void reloadLocal() {
+        synchronized (ZkNotifyReloadCache.this) {
+            if (cachedObject != null) {
+                T newObject = cacheFactory.get();
+                if (newObject != null) {
+                    T old = cachedObject;
+                    cachedObject = newObject;
+                    if (oldCleanup != null && old != cachedObject) {
+                        oldCleanup.accept(old);
+                    }
+                }
+            }
+        }
+    }
+
     private Supplier<T> wrapTry(CacheFactory<T> supplier) {
         if (supplier == null) {
             return null;
