@@ -71,6 +71,10 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         return cachedObject;
     }
 
+    public Set<String> getZkNotifyPaths() {
+        return notifyZkPaths;
+    }
+
     private T init() {
         T obj = cacheFactory.get();
         if (obj == null && firstAccessFailFactory != null) {
@@ -116,7 +120,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             }
                         }
                     }
-                } , scheduleRunDruation, scheduleRunDruation, MILLISECONDS);
+                }, scheduleRunDruation, scheduleRunDruation, MILLISECONDS);
             }
         }
         return obj;
