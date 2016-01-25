@@ -5,19 +5,20 @@ package com.github.phantomthief.localcache.impl;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.apache.curator.framework.CuratorFramework;
+import org.slf4j.Logger;
 
 import com.github.phantomthief.localcache.CacheFactory;
 import com.github.phantomthief.localcache.ReloadableCache;
@@ -29,7 +30,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
  */
 public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
-    private static org.slf4j.Logger logger = getLogger(ZkNotifyReloadCache.class);
+    private static Logger logger = getLogger(ZkNotifyReloadCache.class);
 
     private final Supplier<T> cacheFactory;
     private final Supplier<T> firstAccessFailFactory;
@@ -54,6 +55,19 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         this.random = maxRandomSleepOnNotifyReload > 0 ? new Random() : null;
         this.zkBroadcaster = zkBroadcaster;
         this.scheduleRunDruation = scheduleRunDruation;
+    }
+
+    public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
+            Supplier<CuratorFramework> curatorFactory) {
+        return ZkNotifyReloadCache.<T> newBuilder() //
+                .withCacheFactory(cacheFactory) //
+                .withNotifyZkPath(notifyZkPath) //
+                .withCuratorFactory(curatorFactory) //
+                .build();
+    }
+
+    public static <T> Builder<T> newBuilder() {
+        return new Builder<>();
     }
 
     /* (non-Javadoc)
@@ -82,33 +96,31 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
         if (obj != null) {
             if (zkBroadcaster != null && notifyZkPaths != null) {
-                notifyZkPaths.forEach(notifyZkPath -> {
-                    zkBroadcaster.subscribe(notifyZkPath, () -> {
-                        if (maxRandomSleepOnNotifyReload > 0) {
-                            sleepUninterruptibly(random.nextInt(maxRandomSleepOnNotifyReload),
-                                    MILLISECONDS);
-                        }
-                        synchronized (ZkNotifyReloadCache.this) {
-                            T newObject = cacheFactory.get();
-                            if (newObject != null) {
-                                T old = cachedObject;
-                                cachedObject = newObject;
-                                if (oldCleanup != null && old != cachedObject) {
-                                    oldCleanup.accept(old);
+                notifyZkPaths.forEach(notifyZkPath -> zkBroadcaster.subscribe(
+                        notifyZkPath,
+                        () -> {
+                            if (maxRandomSleepOnNotifyReload > 0) {
+                                sleepUninterruptibly(random.nextInt(maxRandomSleepOnNotifyReload),
+                                        MILLISECONDS);
+                            }
+                            synchronized (ZkNotifyReloadCache.this) {
+                                T newObject = cacheFactory.get();
+                                if (newObject != null) {
+                                    T old = cachedObject;
+                                    cachedObject = newObject;
+                                    if (oldCleanup != null && old != cachedObject) {
+                                        oldCleanup.accept(old);
+                                    }
                                 }
                             }
-                        }
-                    });
-                });
+                        }));
             }
             if (scheduleRunDruation > 0) {
-                ScheduledExecutorService scheduledExecutorService = Executors
-                        .newScheduledThreadPool(1,
-                                new ThreadFactoryBuilder() //
-                                        .setPriority(Thread.MIN_PRIORITY) //
-                                        .setNameFormat(
-                                                "zkAutoReloadThread-" + notifyZkPaths + "-%d") //
-                                        .build());
+                ScheduledExecutorService scheduledExecutorService = newScheduledThreadPool(1,
+                        new ThreadFactoryBuilder() //
+                                .setPriority(Thread.MIN_PRIORITY) //
+                                .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d") //
+                                .build());
                 scheduledExecutorService.scheduleWithFixedDelay(() -> {
                     synchronized (ZkNotifyReloadCache.this) {
                         T newObject = cacheFactory.get();
@@ -116,6 +128,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             T old = cachedObject;
                             cachedObject = newObject;
                             if (oldCleanup != null || old != cachedObject) {
+                                assert oldCleanup != null;
                                 oldCleanup.accept(old);
                             }
                         }
@@ -126,9 +139,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         return obj;
     }
 
-    /* (non-Javadoc)
-     * @see com.kuaishou.framework.localcache.n.ReloadableCache#reload()
-     */
     @Override
     public void reload() {
         if (zkBroadcaster != null && notifyZkPaths != null) {
@@ -163,7 +173,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             try {
                 return supplier.get();
             } catch (Throwable e) {
-                logger.error("fail to create obj.", e);;
+                logger.error("fail to create obj.", e);
                 return null;
             }
         };
@@ -177,22 +187,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             try {
                 consumer.accept(t);
             } catch (Throwable e) {
-                logger.error("fail to cleanup.", e);;
+                logger.error("fail to cleanup.", e);
             }
         };
-    }
-
-    public static final <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory,
-            String notifyZkPath, Supplier<CuratorFramework> curatorFactory) {
-        return ZkNotifyReloadCache.<T> newBuilder() //
-                .withCacheFactory(cacheFactory) //
-                .withNotifyZkPath(notifyZkPath) //
-                .withCuratorFactory(curatorFactory) //
-                .build();
-    }
-
-    public static final <T> Builder<T> newBuilder() {
-        return new Builder<>();
     }
 
     public static final class Builder<T> {

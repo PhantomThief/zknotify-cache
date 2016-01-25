@@ -36,6 +36,12 @@ public class ZkNotifyReloadCacheTest {
         curatorFramework.start();
     }
 
+    @AfterClass
+    public static void destroy() throws IOException {
+        curatorFramework.close();
+        testingServer.close();
+    }
+
     @Test
     public void test() {
         count.set(0);
@@ -66,11 +72,5 @@ public class ZkNotifyReloadCacheTest {
 
     private String build() {
         return String.valueOf(count.getAndIncrement());
-    }
-
-    @AfterClass
-    public static void destroy() throws IOException {
-        curatorFramework.close();
-        testingServer.close();
     }
 }

@@ -8,5 +8,5 @@ package com.github.phantomthief.localcache;
  */
 public interface CacheFactory<T> {
 
-    public T get() throws Throwable;
+    T get() throws Throwable;
 }
