@@ -70,9 +70,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         return new Builder<>();
     }
 
-    /* (non-Javadoc)
-     * @see java.util.function.Supplier#get()
-     */
     @Override
     public T get() {
         if (cachedObject == null) {
@@ -96,24 +93,22 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
         if (obj != null) {
             if (zkBroadcaster != null && notifyZkPaths != null) {
-                notifyZkPaths.forEach(notifyZkPath -> zkBroadcaster.subscribe(
-                        notifyZkPath,
-                        () -> {
-                            if (maxRandomSleepOnNotifyReload > 0) {
-                                sleepUninterruptibly(random.nextInt(maxRandomSleepOnNotifyReload),
-                                        MILLISECONDS);
+                notifyZkPaths.forEach(notifyZkPath -> zkBroadcaster.subscribe(notifyZkPath, () -> {
+                    if (maxRandomSleepOnNotifyReload > 0) {
+                        sleepUninterruptibly(random.nextInt(maxRandomSleepOnNotifyReload),
+                                MILLISECONDS);
+                    }
+                    synchronized (ZkNotifyReloadCache.this) {
+                        T newObject = cacheFactory.get();
+                        if (newObject != null) {
+                            T old = cachedObject;
+                            cachedObject = newObject;
+                            if (oldCleanup != null && old != cachedObject) {
+                                oldCleanup.accept(old);
                             }
-                            synchronized (ZkNotifyReloadCache.this) {
-                                T newObject = cacheFactory.get();
-                                if (newObject != null) {
-                                    T old = cachedObject;
-                                    cachedObject = newObject;
-                                    if (oldCleanup != null && old != cachedObject) {
-                                        oldCleanup.accept(old);
-                                    }
-                                }
-                            }
-                        }));
+                        }
+                    }
+                }));
             }
             if (scheduleRunDruation > 0) {
                 ScheduledExecutorService scheduledExecutorService = newScheduledThreadPool(1,

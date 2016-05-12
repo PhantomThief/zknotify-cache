@@ -6,6 +6,7 @@ package com.github.phantomthief.zookeeper.broadcast;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Throwables.propagate;
 import static org.apache.curator.utils.ZKPaths.makePath;
+import static org.slf4j.LoggerFactory.getLogger;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -16,6 +17,7 @@ import java.util.function.Supplier;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.recipes.cache.NodeCache;
 import org.apache.zookeeper.KeeperException;
+import org.slf4j.Logger;
 
 /**
  * @author w.vela
@@ -24,7 +26,7 @@ public class ZkBroadcaster {
 
     private static final String DEFAULT_ZK_PREFIX = "/broadcast";
 
-    private final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(getClass());
+    private final Logger logger = getLogger(getClass());
 
     private final Supplier<CuratorFramework> curatorFactory;
     private final String zkPrefix;
@@ -80,8 +82,8 @@ public class ZkBroadcaster {
             try {
                 curatorFactory.get().setData().forPath(realPath, content.getBytes());
             } catch (KeeperException.NoNodeException e) {
-                curatorFactory.get().create().creatingParentsIfNeeded()
-                        .forPath(realPath, content.getBytes());
+                curatorFactory.get().create().creatingParentsIfNeeded().forPath(realPath,
+                        content.getBytes());
             }
         } catch (Throwable e) {
             throw propagate(e);
