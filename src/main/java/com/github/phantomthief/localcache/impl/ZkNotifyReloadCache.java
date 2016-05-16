@@ -39,14 +39,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final int maxRandomSleepOnNotifyReload;
     private final Random random;
     private final ZkBroadcaster zkBroadcaster;
-    private final long scheduleRunDruation;
+    private final long scheduleRunDuration;
 
     private volatile T cachedObject;
 
     private ZkNotifyReloadCache(CacheFactory<T> cacheFactory,
             CacheFactory<T> firstAccessFailFactory, Set<String> notifyZkPaths,
             Consumer<T> oldCleanup, int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster,
-            long scheduleRunDruation) {
+            long scheduleRunDuration) {
         this.cacheFactory = wrapTry(cacheFactory);
         this.firstAccessFailFactory = wrapTry(firstAccessFailFactory);
         this.notifyZkPaths = notifyZkPaths;
@@ -54,7 +54,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReload;
         this.random = maxRandomSleepOnNotifyReload > 0 ? new Random() : null;
         this.zkBroadcaster = zkBroadcaster;
-        this.scheduleRunDruation = scheduleRunDruation;
+        this.scheduleRunDuration = scheduleRunDuration;
     }
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
@@ -110,7 +110,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                     }
                 }));
             }
-            if (scheduleRunDruation > 0) {
+            if (scheduleRunDuration > 0) {
                 ScheduledExecutorService scheduledExecutorService = newScheduledThreadPool(1,
                         new ThreadFactoryBuilder() //
                                 .setPriority(Thread.MIN_PRIORITY) //
@@ -128,7 +128,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             }
                         }
                     }
-                }, scheduleRunDruation, scheduleRunDruation, MILLISECONDS);
+                }, scheduleRunDuration, scheduleRunDuration, MILLISECONDS);
             }
         }
         return obj;
@@ -247,8 +247,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
-        public Builder<T> withMaxRandomSleepOnNotifyReload(int maxRandomSleepOnNotifyReload) {
-            this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReload;
+        public Builder<T> withMaxRandomSleepOnNotifyReload(int maxRandomSleepOnNotifyReloadInMs) {
+            this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReloadInMs;
             return this;
         }
 
