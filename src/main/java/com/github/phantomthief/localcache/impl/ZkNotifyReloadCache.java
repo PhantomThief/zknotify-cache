@@ -10,9 +10,9 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import java.util.HashSet;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -36,8 +36,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final Supplier<T> firstAccessFailFactory;
     private final Set<String> notifyZkPaths;
     private final Consumer<T> oldCleanup;
-    private final int maxRandomSleepOnNotifyReload;
-    private final Random random;
+    private final long maxRandomSleepOnNotifyReload;
     private final ZkBroadcaster zkBroadcaster;
     private final long scheduleRunDuration;
 
@@ -45,14 +44,13 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private ZkNotifyReloadCache(CacheFactory<T> cacheFactory,
             CacheFactory<T> firstAccessFailFactory, Set<String> notifyZkPaths,
-            Consumer<T> oldCleanup, int maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster,
+            Consumer<T> oldCleanup, long maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster,
             long scheduleRunDuration) {
         this.cacheFactory = wrapTry(cacheFactory);
         this.firstAccessFailFactory = wrapTry(firstAccessFailFactory);
         this.notifyZkPaths = notifyZkPaths;
         this.oldCleanup = wrapTry(oldCleanup);
         this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReload;
-        this.random = maxRandomSleepOnNotifyReload > 0 ? new Random() : null;
         this.zkBroadcaster = zkBroadcaster;
         this.scheduleRunDuration = scheduleRunDuration;
     }
@@ -95,7 +93,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             if (zkBroadcaster != null && notifyZkPaths != null) {
                 notifyZkPaths.forEach(notifyZkPath -> zkBroadcaster.subscribe(notifyZkPath, () -> {
                     if (maxRandomSleepOnNotifyReload > 0) {
-                        sleepUninterruptibly(random.nextInt(maxRandomSleepOnNotifyReload),
+                        sleepUninterruptibly(
+                                ThreadLocalRandom.current().nextLong(maxRandomSleepOnNotifyReload),
                                 MILLISECONDS);
                     }
                     synchronized (ZkNotifyReloadCache.this) {
@@ -192,7 +191,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private CacheFactory<T> firstAccessFailFactory;
         private Set<String> notifyZkPaths;
         private Consumer<T> oldCleanup;
-        private int maxRandomSleepOnNotifyReload;
+        private long maxRandomSleepOnNotifyReload;
         private ZkBroadcaster zkBroadcaster;
         private long scheduleRunDruation;
 
@@ -246,9 +245,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
-        public Builder<T> withMaxRandomSleepOnNotifyReload(int maxRandomSleepOnNotifyReloadInMs) {
+        public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotifyReloadInMs) {
             this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReloadInMs;
             return this;
+        }
+
+        public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotify,
+                TimeUnit unit) {
+            return withMaxRandomSleepOnNotifyReload(unit.toMillis(maxRandomSleepOnNotify));
         }
 
         public ZkNotifyReloadCache<T> build() {
