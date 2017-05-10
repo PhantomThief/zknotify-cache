@@ -123,7 +123,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             T old = cachedObject;
                             cachedObject = newObject;
                             if (oldCleanup != null || old != cachedObject) {
-                                assert oldCleanup != null;
                                 oldCleanup.accept(old);
                             }
                         }
