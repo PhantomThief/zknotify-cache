@@ -4,7 +4,7 @@
 package com.github.phantomthief.zookeeper.broadcast;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Throwables.propagate;
+import static com.google.common.base.Throwables.throwIfUnchecked;
 import static org.apache.curator.utils.ZKPaths.makePath;
 import static org.slf4j.LoggerFactory.getLogger;
 
@@ -61,8 +61,8 @@ public class ZkBroadcaster {
                 nodeCache.start();
                 nodeCache.rebuild();
             } catch (Throwable e) {
-                logger.error("Ops.", e);
-                throw propagate(e);
+                throwIfUnchecked(e);
+                throw new RuntimeException(e);
             }
             nodeCache.getListenable().addListener(() -> subscribers.parallelStream().forEach(s -> {
                 try {
@@ -86,7 +86,8 @@ public class ZkBroadcaster {
                         content.getBytes());
             }
         } catch (Throwable e) {
-            throw propagate(e);
+            throwIfUnchecked(e);
+            throw new RuntimeException(e);
         }
     }
 }
