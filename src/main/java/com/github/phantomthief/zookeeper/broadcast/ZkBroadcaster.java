@@ -1,6 +1,3 @@
-/**
- * 
- */
 package com.github.phantomthief.zookeeper.broadcast;
 
 import static com.google.common.base.Preconditions.checkNotNull;
