@@ -2,6 +2,7 @@ package com.github.phantomthief.zookeeper.broadcast;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Throwables.throwIfUnchecked;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static org.apache.curator.utils.ZKPaths.makePath;
 import static org.slf4j.LoggerFactory.getLogger;
 
@@ -9,7 +10,10 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
 import java.util.function.Supplier;
+
+import javax.annotation.Nonnull;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.recipes.cache.NodeCache;
@@ -40,8 +44,14 @@ public class ZkBroadcaster {
     }
 
     public void subscribe(String path, Runnable subscriber) {
+        subscribe(path, subscriber, directExecutor());
+    }
+
+    public void subscribe(@Nonnull String path, @Nonnull Runnable subscriber,
+            @Nonnull Executor executor) {
         checkNotNull(path);
         checkNotNull(subscriber);
+        checkNotNull(executor);
 
         Set<Runnable> subscribers = subscribeMap.compute(path, (k, oldSet) -> {
             if (oldSet == null) {
@@ -67,10 +77,9 @@ public class ZkBroadcaster {
                 } catch (Throwable e) {
                     logger.error("Ops. fail to do handle for:{}->{}", zkPrefix, s, e);
                 }
-            }));
+            }), executor);
             return nodeCache;
         });
-
     }
 
     public void broadcast(String path, String content) {
