@@ -4,9 +4,11 @@ import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterrup
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -15,11 +17,17 @@ import org.apache.curator.test.TestingServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
 
 /**
  * @author w.vela
  */
 class ZkNotifyReloadCacheTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(ZkNotifyReloadCacheTest.class);
 
     private static TestingServer testingServer;
     private static CuratorFramework curatorFramework;
@@ -65,6 +73,20 @@ class ZkNotifyReloadCacheTest {
         assertEquals(cache.get(), "1");
         sleepUninterruptibly(1300, MILLISECONDS);
         assertEquals(cache.get(), "2");
+    }
+
+    @Test
+    void testNotify() {
+        ZkBroadcaster zkBroadcaster = new ZkBroadcaster(() -> curatorFramework);
+        AtomicReference<String> received = new AtomicReference<>();
+        zkBroadcaster.subscribe("/myTest", () -> {
+            logger.info("received.");
+            received.set("test");
+        });
+        assertNull(received.get());
+        zkBroadcaster.broadcast("/myTest", "myContent");
+        sleepUninterruptibly(1, SECONDS);
+        assertEquals("test", received.get());
     }
 
     private String build() {

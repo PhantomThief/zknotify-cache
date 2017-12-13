@@ -1,6 +1,7 @@
 package com.github.phantomthief.localcache.impl;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -8,11 +9,14 @@ import static org.slf4j.LoggerFactory.getLogger;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+
+import javax.annotation.Nonnull;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.Logger;
@@ -36,20 +40,19 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final long maxRandomSleepOnNotifyReload;
     private final ZkBroadcaster zkBroadcaster;
     private final long scheduleRunDuration;
+    private final Executor executor;
 
     private volatile T cachedObject;
 
-    private ZkNotifyReloadCache(CacheFactory<T> cacheFactory,
-            CacheFactory<T> firstAccessFailFactory, Set<String> notifyZkPaths,
-            Consumer<T> oldCleanup, long maxRandomSleepOnNotifyReload, ZkBroadcaster zkBroadcaster,
-            long scheduleRunDuration) {
-        this.cacheFactory = wrapTry(cacheFactory);
-        this.firstAccessFailFactory = wrapTry(firstAccessFailFactory);
-        this.notifyZkPaths = notifyZkPaths;
-        this.oldCleanup = wrapTry(oldCleanup);
-        this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReload;
-        this.zkBroadcaster = zkBroadcaster;
-        this.scheduleRunDuration = scheduleRunDuration;
+    private ZkNotifyReloadCache(Builder<T> builder) {
+        this.cacheFactory = wrapTry(builder.cacheFactory);
+        this.firstAccessFailFactory = wrapTry(builder.firstAccessFailFactory);
+        this.notifyZkPaths = builder.notifyZkPaths;
+        this.oldCleanup = wrapTry(builder.oldCleanup);
+        this.maxRandomSleepOnNotifyReload = builder.maxRandomSleepOnNotifyReload;
+        this.zkBroadcaster = builder.zkBroadcaster;
+        this.scheduleRunDuration = builder.scheduleRunDuration;
+        this.executor = builder.executor;
     }
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
@@ -104,7 +107,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             }
                         }
                     }
-                }));
+                }, executor));
             }
             if (scheduleRunDuration > 0) {
                 ScheduledExecutorService scheduledExecutorService = newScheduledThreadPool(1,
@@ -190,10 +193,16 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private Consumer<T> oldCleanup;
         private long maxRandomSleepOnNotifyReload;
         private ZkBroadcaster zkBroadcaster;
-        private long scheduleRunDruation;
+        private long scheduleRunDuration;
+        private Executor executor;
+
+        public Builder<T> subscribeExecutor(@Nonnull Executor executor) {
+            this.executor = checkNotNull(executor);
+            return this;
+        }
 
         public Builder<T> enableAutoReload(long timeDuration, TimeUnit unit) {
-            scheduleRunDruation = unit.toMillis(timeDuration);
+            scheduleRunDuration = unit.toMillis(timeDuration);
             return this;
         }
 
@@ -254,14 +263,16 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
         public ZkNotifyReloadCache<T> build() {
             ensure();
-            return new ZkNotifyReloadCache<>(cacheFactory, firstAccessFailFactory, notifyZkPaths,
-                    oldCleanup, maxRandomSleepOnNotifyReload, zkBroadcaster, scheduleRunDruation);
+            return new ZkNotifyReloadCache<>(this);
         }
 
         private void ensure() {
             checkNotNull(cacheFactory, "no cache factory.");
             if (notifyZkPaths != null && !notifyZkPaths.isEmpty()) {
                 checkNotNull(zkBroadcaster, "no zk broadcaster.");
+            }
+            if (executor == null) {
+                executor = directExecutor();
             }
         }
     }
