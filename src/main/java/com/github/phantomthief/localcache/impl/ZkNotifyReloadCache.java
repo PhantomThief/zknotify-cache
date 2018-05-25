@@ -102,7 +102,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                                     notifyZkPath, (deadline - currentTimeMillis()));
                             return;
                         }
-                        long sleepFor = current().nextLong(maxRandomSleepOnNotifyReload);
+                        long sleepFor = maxRandomSleepOnNotifyReload > 0 ? current()
+                                .nextLong(maxRandomSleepOnNotifyReload) : 0;
                         sleeping.set(sleepFor + currentTimeMillis());
                         executor.schedule(() -> {
                             sleeping.set(0L);
