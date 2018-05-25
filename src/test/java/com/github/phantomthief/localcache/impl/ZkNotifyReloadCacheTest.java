@@ -89,6 +89,36 @@ class ZkNotifyReloadCacheTest {
         assertEquals("test", received.get());
     }
 
+    @Test
+    void testRandomSleep() {
+        count.set(0);
+        logger.info("test random sleep.");
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
+                .withCacheFactory(this::build) //
+                .withNotifyZkPath("/test") //
+                .withMaxRandomSleepOnNotifyReload(15, SECONDS) //
+                .withCuratorFactory(() -> curatorFramework) //
+                .build();
+        assertEquals(cache.get(), "0");
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        sleepUninterruptibly(20, SECONDS);
+        assertEquals(cache.get(), "1");
+        logger.info("next round.");
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        sleepUninterruptibly(20, SECONDS);
+        assertEquals(cache.get(), "2");
+    }
+
     private String build() {
         return String.valueOf(count.getAndIncrement());
     }
