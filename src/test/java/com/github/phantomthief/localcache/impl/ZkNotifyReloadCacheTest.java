@@ -16,6 +16,7 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.curator.test.TestingServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +62,7 @@ class ZkNotifyReloadCacheTest {
         assertEquals(cache.get(), "1");
     }
 
+    @Disabled
     @Test
     void testScheduled() {
         count.set(0);
