@@ -1,14 +1,17 @@
 package com.github.phantomthief.localcache.impl;
 
+import static com.github.phantomthief.concurrent.MoreFutures.scheduleWithDynamicDelay;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.Thread.MIN_PRIORITY;
+import static java.time.Duration.ofMillis;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 import static java.util.concurrent.ThreadLocalRandom.current;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.slf4j.LoggerFactory.getLogger;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
@@ -18,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import javax.annotation.CheckReturnValue;
 import javax.annotation.Nonnull;
 
 import org.apache.curator.framework.CuratorFramework;
@@ -41,7 +45,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final Consumer<T> oldCleanup;
     private final long maxRandomSleepOnNotifyReload;
     private final ZkBroadcaster zkBroadcaster;
-    private final long scheduleRunDuration;
+    private final Supplier<Duration> scheduleRunDuration;
     private final ScheduledExecutorService executor;
 
     private volatile T cachedObject;
@@ -112,14 +116,13 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                     });
                 });
             }
-            if (scheduleRunDuration > 0) {
+            if (scheduleRunDuration != null) {
                 ScheduledExecutorService scheduledExecutorService = newScheduledThreadPool(1,
                         new ThreadFactoryBuilder() //
                                 .setPriority(MIN_PRIORITY) //
                                 .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d") //
                                 .build());
-                scheduledExecutorService.scheduleWithFixedDelay(this::doRebuild,
-                        scheduleRunDuration, scheduleRunDuration, MILLISECONDS);
+                scheduleWithDynamicDelay(scheduledExecutorService, scheduleRunDuration, this::doRebuild);
             }
         }
         return obj;
@@ -199,39 +202,51 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private Consumer<T> oldCleanup;
         private long maxRandomSleepOnNotifyReload;
         private ZkBroadcaster zkBroadcaster;
-        private long scheduleRunDuration;
+        private Supplier<Duration> scheduleRunDuration;
         private ScheduledExecutorService executor;
 
+        @CheckReturnValue
         public Builder<T> subscribeThreadFactory(@Nonnull ThreadFactory threadFactory) {
             this.executor = newSingleThreadScheduledExecutor(checkNotNull(threadFactory));
             return this;
         }
 
-        public Builder<T> enableAutoReload(long timeDuration, TimeUnit unit) {
-            scheduleRunDuration = unit.toMillis(timeDuration);
+        @CheckReturnValue
+        public Builder<T> enableAutoReload(@Nonnull Supplier<Duration> duration) {
+            scheduleRunDuration = checkNotNull(duration);
             return this;
         }
 
+        @CheckReturnValue
+        public Builder<T> enableAutoReload(long timeDuration, TimeUnit unit) {
+            return enableAutoReload(() -> ofMillis(unit.toMillis(timeDuration)));
+        }
+
+        @CheckReturnValue
         public Builder<T> withZkBroadcaster(ZkBroadcaster zkBroadcaster) {
             this.zkBroadcaster = zkBroadcaster;
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> withCuratorFactory(Supplier<CuratorFramework> curatorFactory) {
             return withCuratorFactory(curatorFactory, null);
         }
 
+        @CheckReturnValue
         public Builder<T> withCuratorFactory(Supplier<CuratorFramework> curatorFactory,
                 String broadcastPrefix) {
             this.zkBroadcaster = new ZkBroadcaster(curatorFactory, broadcastPrefix);
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> withCacheFactory(CacheFactory<T> cacheFactory) {
             this.cacheFactory = cacheFactory;
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> firstAccessFailObject(T obj) {
             if (obj != null) {
                 this.firstAccessFailFactory = () -> obj;
@@ -239,11 +254,13 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> firstAccessFailFactory(CacheFactory<T> firstAccessFailFactory) {
             this.firstAccessFailFactory = firstAccessFailFactory;
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> withNotifyZkPath(String notifyZkPath) {
             if (notifyZkPaths == null) {
                 notifyZkPaths = new HashSet<>();
@@ -252,16 +269,19 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> withOldCleanup(Consumer<T> oldCleanup) {
             this.oldCleanup = oldCleanup;
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotifyReloadInMs) {
             this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReloadInMs;
             return this;
         }
 
+        @CheckReturnValue
         public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotify,
                 TimeUnit unit) {
             return withMaxRandomSleepOnNotifyReload(unit.toMillis(maxRandomSleepOnNotify));
