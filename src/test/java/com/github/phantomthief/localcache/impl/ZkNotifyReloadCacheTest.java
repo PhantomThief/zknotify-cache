@@ -1,6 +1,7 @@
 package com.github.phantomthief.localcache.impl;
 
 import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
+import static java.time.Duration.ofSeconds;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,6 +76,26 @@ class ZkNotifyReloadCacheTest {
         assertEquals(cache.get(), "1");
         sleepUninterruptibly(1300, MILLISECONDS);
         assertEquals(cache.get(), "2");
+    }
+
+    @Disabled
+    @Test
+    void testDynamicScheduled() {
+        count.set(0);
+        int[] delay = { 1 };
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
+                .withCacheFactory(this::build) //
+                .enableAutoReload(() -> ofSeconds(delay[0]++)) //
+                .build();
+        assertEquals(cache.get(), "0");
+        sleepUninterruptibly(1300, MILLISECONDS);
+        assertEquals(cache.get(), "1");
+        sleepUninterruptibly(2300, MILLISECONDS);
+        assertEquals(cache.get(), "2");
+        sleepUninterruptibly(3300, MILLISECONDS);
+        assertEquals(cache.get(), "3");
+        sleepUninterruptibly(4300, MILLISECONDS);
+        assertEquals(cache.get(), "4");
     }
 
     @Test

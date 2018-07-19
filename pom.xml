@@ -37,7 +37,9 @@
     </scm>
 
     <properties>
+        <slf4j-api.version>1.7.14</slf4j-api.version>
         <curator.version>4.0.0</curator.version>
+        <more-lambdas.version>0.1.25</more-lambdas.version>
 
         <junit-jupiter.version>5.0.2</junit-jupiter.version>
         <junit-platform.version>1.0.2</junit-platform.version>
@@ -50,7 +52,12 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>1.7.14</version>
+            <version>${slf4j-api.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.phantomthief</groupId>
+            <artifactId>more-lambdas</artifactId>
+            <version>${more-lambdas.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.curator</groupId>
