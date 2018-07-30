@@ -206,40 +206,47 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private ScheduledExecutorService executor;
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> subscribeThreadFactory(@Nonnull ThreadFactory threadFactory) {
             this.executor = newSingleThreadScheduledExecutor(checkNotNull(threadFactory));
             return this;
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> enableAutoReload(@Nonnull Supplier<Duration> duration) {
             scheduleRunDuration = checkNotNull(duration);
             return this;
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> enableAutoReload(long timeDuration, TimeUnit unit) {
             return enableAutoReload(() -> ofMillis(unit.toMillis(timeDuration)));
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> withZkBroadcaster(ZkBroadcaster zkBroadcaster) {
             this.zkBroadcaster = zkBroadcaster;
             return this;
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> withCuratorFactory(Supplier<CuratorFramework> curatorFactory) {
             return withCuratorFactory(curatorFactory, null);
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> withCuratorFactory(Supplier<CuratorFramework> curatorFactory,
                 String broadcastPrefix) {
             this.zkBroadcaster = new ZkBroadcaster(curatorFactory, broadcastPrefix);
             return this;
         }
 
+        @Nonnull
         @CheckReturnValue
         public Builder<T> withCacheFactory(CacheFactory<T> cacheFactory) {
             this.cacheFactory = cacheFactory;
@@ -247,6 +254,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> firstAccessFailObject(T obj) {
             if (obj != null) {
                 this.firstAccessFailFactory = () -> obj;
@@ -255,12 +263,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> firstAccessFailFactory(CacheFactory<T> firstAccessFailFactory) {
             this.firstAccessFailFactory = firstAccessFailFactory;
             return this;
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> withNotifyZkPath(String notifyZkPath) {
             if (notifyZkPaths == null) {
                 notifyZkPaths = new HashSet<>();
@@ -270,23 +280,27 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> withOldCleanup(Consumer<T> oldCleanup) {
             this.oldCleanup = oldCleanup;
             return this;
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotifyReloadInMs) {
             this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReloadInMs;
             return this;
         }
 
         @CheckReturnValue
+        @Nonnull
         public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotify,
                 TimeUnit unit) {
             return withMaxRandomSleepOnNotifyReload(unit.toMillis(maxRandomSleepOnNotify));
         }
 
+        @Nonnull
         public ZkNotifyReloadCache<T> build() {
             ensure();
             return new ZkNotifyReloadCache<>(this);
