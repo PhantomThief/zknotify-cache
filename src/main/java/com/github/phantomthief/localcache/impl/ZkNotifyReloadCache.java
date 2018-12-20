@@ -149,7 +149,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         try {
             newObject = cacheFactory.get();
         } catch (Throwable e) {
-            logger.error("fail to rebuild cache", e);
+            logger.error("fail to rebuild cache, remain the previous one.", e);
         }
         if (newObject != null) {
             T old = cachedObject;
