@@ -229,6 +229,9 @@ class ZkNotifyReloadCacheTest {
         assertEquals("EMPTY", cache.get());
         assertEquals(1, buildCount.get());
 
+        assertEquals("EMPTY", cache.get());
+        assertEquals(1, buildCount.get());
+
         cache.reload();
         SECONDS.sleep(20);
 
