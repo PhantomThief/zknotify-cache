@@ -28,6 +28,8 @@ import com.github.phantomthief.localcache.CacheFactory;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
 
 /**
+ * 所有 @Disabled 的测试用例都需要手工运行确认
+ *
  * @author w.vela
  */
 class ZkNotifyReloadCacheTest {
