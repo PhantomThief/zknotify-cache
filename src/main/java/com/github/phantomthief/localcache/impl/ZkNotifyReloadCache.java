@@ -2,6 +2,7 @@ package com.github.phantomthief.localcache.impl;
 
 import static com.github.phantomthief.concurrent.MoreFutures.scheduleWithDynamicDelay;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Throwables.throwIfUnchecked;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.Thread.MIN_PRIORITY;
 import static java.time.Duration.ofMillis;
@@ -39,6 +40,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private static Logger logger = getLogger(ZkNotifyReloadCache.class);
 
+    private final Supplier<CachedObject<T>> firstAccessCacheFactory;
     private final Supplier<T> cacheFactory;
     private final Supplier<T> firstAccessFailFactory;
     private final Set<String> notifyZkPaths;
@@ -48,9 +50,10 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final Supplier<Duration> scheduleRunDuration;
     private final ScheduledExecutorService executor;
 
-    private volatile T cachedObject;
+    private volatile CachedObject<T> cachedObject;
 
     private ZkNotifyReloadCache(Builder<T> builder) {
+        this.firstAccessCacheFactory = wrapTryFirst(builder.cacheFactory);
         this.cacheFactory = wrapTry(builder.cacheFactory);
         this.firstAccessFailFactory = wrapTry(builder.firstAccessFailFactory);
         this.notifyZkPaths = builder.notifyZkPaths;
@@ -76,26 +79,37 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     @Override
     public T get() {
-        if (cachedObject == null) {
+        CachedObject<T> thisCache = cachedObject;
+        if (cacheIsInvalid(thisCache)) {
             synchronized (ZkNotifyReloadCache.this) {
-                if (cachedObject == null) {
-                    cachedObject = init();
+                thisCache = cachedObject;
+                if (cacheIsInvalid(thisCache)) {
+                    cachedObject = thisCache = init();
                 }
             }
         }
-        return cachedObject;
+        if (thisCache.e != null) {
+            throwIfUnchecked(thisCache.e);
+            throw new RuntimeException(thisCache.e);
+        } else {
+            return thisCache.obj;
+        }
+    }
+    
+    private boolean cacheIsInvalid(CachedObject<T> t) {
+        return t == null || t.e != null;
     }
 
     public Set<String> getZkNotifyPaths() {
         return notifyZkPaths;
     }
 
-    private T init() {
-        T obj = cacheFactory.get();
-        if (obj == null && firstAccessFailFactory != null) {
-            obj = firstAccessFailFactory.get();
+    private CachedObject<T> init() {
+        CachedObject<T> obj = firstAccessCacheFactory.get();
+        if ((obj.e != null || obj.obj == null) && firstAccessFailFactory != null) {
+            obj = new CachedObject<>(firstAccessFailFactory.get());
         }
-        if (obj != null) {
+        if (obj.obj != null) {
             if (zkBroadcaster != null && notifyZkPaths != null) {
                 notifyZkPaths.forEach(notifyZkPath -> {
                     AtomicLong sleeping = new AtomicLong();
@@ -132,9 +146,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         synchronized (ZkNotifyReloadCache.this) {
             T newObject = cacheFactory.get();
             if (newObject != null) {
-                T old = cachedObject;
-                cachedObject = newObject;
-                if (oldCleanup != null && old != cachedObject) {
+                T old = cachedObject.obj;
+                cachedObject = new CachedObject<>(newObject);
+                if (oldCleanup != null && old != cachedObject.obj) {
                     oldCleanup.accept(old);
                 }
             }
@@ -157,8 +171,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             if (cachedObject != null) {
                 T newObject = cacheFactory.get();
                 if (newObject != null) {
-                    T old = cachedObject;
-                    cachedObject = newObject;
+                    T old = cachedObject.obj;
+                    cachedObject = new CachedObject<>(newObject);
                     if (oldCleanup != null && old != cachedObject) {
                         oldCleanup.accept(old);
                     }
@@ -177,6 +191,17 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             } catch (Throwable e) {
                 logger.error("fail to create obj.", e);
                 return null;
+            }
+        };
+    }
+
+    private Supplier<CachedObject<T>> wrapTryFirst(CacheFactory<T> supplier) {
+        return () -> {
+            try {
+                return new CachedObject<>(supplier.get());
+            } catch (Throwable e) {
+                logger.error("fail to create obj.", e);
+                return new CachedObject<>(null, e);
             }
         };
     }
