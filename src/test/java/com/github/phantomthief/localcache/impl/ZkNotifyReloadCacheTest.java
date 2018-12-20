@@ -243,7 +243,7 @@ class ZkNotifyReloadCacheTest {
     }
 
     private void expectedFail(ZkNotifyReloadCache<String> cache) {
-        RuntimeException exception1 = assertThrows(RuntimeException.class, cache::get);
+        CacheBuildFailedException exception1 = assertThrows(CacheBuildFailedException.class, cache::get);
         assertSame(IOException.class, exception1.getCause().getClass());
     }
 
