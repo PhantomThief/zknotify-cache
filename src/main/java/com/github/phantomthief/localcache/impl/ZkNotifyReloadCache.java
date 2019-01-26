@@ -29,6 +29,7 @@ import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.Logger;
 
 import com.github.phantomthief.localcache.CacheFactory;
+import com.github.phantomthief.localcache.CacheFactoryEx;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -40,7 +41,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     private static Logger logger = getLogger(ZkNotifyReloadCache.class);
 
-    private final CacheFactory<T> cacheFactory;
+    private final CacheFactoryEx<T> cacheFactory;
     private final Supplier<T> firstAccessFailFactory;
     private final Set<String> notifyZkPaths;
     private final Consumer<T> oldCleanup;
@@ -94,7 +95,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private T init() {
         T obj;
         try {
-            obj = cacheFactory.get();
+            obj = cacheFactory.get(null);
         } catch (Throwable e) {
             if (firstAccessFailFactory != null) {
                 obj = firstAccessFailFactory.get();
@@ -147,7 +148,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private void doRebuild0() {
         T newObject = null;
         try {
-            newObject = cacheFactory.get();
+            newObject = cacheFactory.get(cachedObject);
         } catch (Throwable e) {
             logger.error("fail to rebuild cache, remain the previous one.", e);
         }
@@ -208,7 +209,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     public static final class Builder<T> {
 
-        private CacheFactory<T> cacheFactory;
+        private CacheFactoryEx<T> cacheFactory;
         private CacheFactory<T> firstAccessFailFactory;
         private Set<String> notifyZkPaths;
         private Consumer<T> oldCleanup;
@@ -261,7 +262,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @Nonnull
         @CheckReturnValue
         public Builder<T> withCacheFactory(CacheFactory<T> cacheFactory) {
-            this.cacheFactory = cacheFactory;
+            this.cacheFactory = (prev) -> cacheFactory.get();
+            return this;
+        }
+
+        @Nonnull
+        @CheckReturnValue
+        public Builder<T> withCacheFactoryEx(CacheFactoryEx<T> cacheFactoryEx) {
+            this.cacheFactory = cacheFactoryEx;
             return this;
         }
 
