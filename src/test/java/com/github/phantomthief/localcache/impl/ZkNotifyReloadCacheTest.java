@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -145,6 +146,24 @@ class ZkNotifyReloadCacheTest {
         cache.reload();
         sleepUninterruptibly(20, SECONDS);
         assertEquals(cache.get(), "2");
+    }
+
+    @Test
+    void testCacheFactoryWithPrevValue() {
+        Long[] data = {null};
+        ZkNotifyReloadCache<Long> cache = ZkNotifyReloadCache.<Long> newBuilder() //
+                .withCacheFactoryEx(prev -> {
+                    assertEquals(data[0], prev);
+                    if (data[0] == null) {
+                        data[0] = 0L;
+                    }
+                    data[0] ++;
+                    return data[0];
+                }) //
+                .enableAutoReload(10, TimeUnit.MICROSECONDS)
+                .build();
+        cache.get();
+        sleepUninterruptibly(1, SECONDS);
     }
 
     @Disabled
