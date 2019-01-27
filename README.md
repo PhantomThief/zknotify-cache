@@ -1,4 +1,4 @@
-zknotify-cache [![Build Status](https://travis-ci.org/PhantomThief/zknotify-cache.svg)](https://travis-ci.org/PhantomThief/zknotify-cache)
+zknotify-cache [![Build Status](https://travis-ci.org/PhantomThief/zknotify-cache.svg)](https://travis-ci.org/PhantomThief/zknotify-cache) [![Coverage Status](https://coveralls.io/repos/github/PhantomThief/zknotify-cache/badge.svg?branch=master)](https://coveralls.io/github/PhantomThief/zknotify-cache?branch=master)
 =======================
 
 ZooKeeper通知更新的本地缓存
