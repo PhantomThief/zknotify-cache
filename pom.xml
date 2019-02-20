@@ -38,7 +38,7 @@
 
     <properties>
         <slf4j-api.version>1.7.14</slf4j-api.version>
-        <curator.version>4.0.0</curator.version>
+        <curator.version>4.1.0</curator.version>
         <more-lambdas.version>0.1.25</more-lambdas.version>
         <guava.version>20.0</guava.version>
         <jsr305.version>3.0.2</jsr305.version>
@@ -67,7 +67,7 @@
         <dependency>
             <groupId>org.apache.curator</groupId>
             <artifactId>curator-recipes</artifactId>
-            <version>[${curator.version},)</version>
+            <version>${curator.version}</version>
         </dependency>
         <dependency>
             <groupId>com.google.guava</groupId>
