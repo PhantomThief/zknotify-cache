@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -145,6 +146,40 @@ class ZkNotifyReloadCacheTest {
         cache.reload();
         cache.reload();
         sleepUninterruptibly(20, SECONDS);
+        assertEquals(cache.get(), "2");
+    }
+
+    @Test
+    void testDynamicRandomSleep() {
+        count.set(0);
+        logger.info("test random sleep.");
+        long[] max = { 0L };
+        LongSupplier maxSleep = () -> max[0];
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
+                .withCacheFactory(this::build) //
+                .withNotifyZkPath("/test") //
+                .withMaxRandomSleepOnNotifyReload(maxSleep) //
+                .withCuratorFactory(() -> curatorFramework) //
+                .build();
+        max[0] = SECONDS.toMillis(15);
+        assertEquals(cache.get(), "0");
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        sleepUninterruptibly(20, SECONDS);
+        assertEquals(cache.get(), "1");
+        max[0] = SECONDS.toMillis(5);
+        logger.info("next round.");
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        cache.reload();
+        sleepUninterruptibly(10, SECONDS);
         assertEquals(cache.get(), "2");
     }
 

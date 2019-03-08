@@ -6,9 +6,9 @@ import static com.google.common.base.Throwables.throwIfUnchecked;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.Thread.MIN_PRIORITY;
 import static java.time.Duration.ofMillis;
+import static java.util.Optional.ofNullable;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
-import static java.util.concurrent.ThreadLocalRandom.current;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.slf4j.LoggerFactory.getLogger;
 
@@ -17,9 +17,11 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 import javax.annotation.CheckReturnValue;
@@ -45,7 +47,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final Supplier<T> firstAccessFailFactory;
     private final Set<String> notifyZkPaths;
     private final Consumer<T> oldCleanup;
-    private final long maxRandomSleepOnNotifyReload;
+    private final LongSupplier maxRandomSleepOnNotifyReload;
     private final ZkBroadcaster zkBroadcaster;
     private final Supplier<Duration> scheduleRunDuration;
     private final ScheduledExecutorService executor;
@@ -117,8 +119,11 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                                     notifyZkPath, (deadline - currentTimeMillis()));
                             return;
                         }
-                        long sleepFor = maxRandomSleepOnNotifyReload > 0 ? current()
-                                .nextLong(maxRandomSleepOnNotifyReload) : 0;
+                        long sleepFor = ofNullable(maxRandomSleepOnNotifyReload) //
+                                .map(LongSupplier::getAsLong) //
+                                .filter(it -> it > 0) //
+                                .map(ThreadLocalRandom.current()::nextLong) //
+                                .orElse(0L);
                         sleeping.set(sleepFor + currentTimeMillis());
                         executor.schedule(() -> {
                             sleeping.set(0L);
@@ -213,7 +218,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private CacheFactory<T> firstAccessFailFactory;
         private Set<String> notifyZkPaths;
         private Consumer<T> oldCleanup;
-        private long maxRandomSleepOnNotifyReload;
+        private LongSupplier maxRandomSleepOnNotifyReload;
         private ZkBroadcaster zkBroadcaster;
         private Supplier<Duration> scheduleRunDuration;
         private ScheduledExecutorService executor;
@@ -309,6 +314,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @CheckReturnValue
         @Nonnull
         public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotifyReloadInMs) {
+            this.maxRandomSleepOnNotifyReload = () -> maxRandomSleepOnNotifyReloadInMs;
+            return this;
+        }
+
+        @CheckReturnValue
+        @Nonnull
+        public Builder<T>
+                withMaxRandomSleepOnNotifyReload(LongSupplier maxRandomSleepOnNotifyReloadInMs) {
             this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReloadInMs;
             return this;
         }
