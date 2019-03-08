@@ -40,7 +40,6 @@ class ZkNotifyReloadCacheTest {
 
     private static TestingServer testingServer;
     private static CuratorFramework curatorFramework;
-    private static AtomicInteger count = new AtomicInteger();
 
     @BeforeAll
     static void init() throws Exception {
@@ -58,9 +57,9 @@ class ZkNotifyReloadCacheTest {
 
     @Test
     void test() {
-        count.set(0);
+        AtomicInteger count = new AtomicInteger();
         ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(this::build) //
+                .withCacheFactory(() -> build(count)) //
                 .withNotifyZkPath("/test") //
                 .withCuratorFactory(() -> curatorFramework) //
                 .build();
@@ -73,9 +72,9 @@ class ZkNotifyReloadCacheTest {
     @Disabled
     @Test
     void testScheduled() {
-        count.set(0);
+        AtomicInteger count = new AtomicInteger();
         ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(this::build) //
+                .withCacheFactory(() -> build(count)) //
                 .enableAutoReload(1, SECONDS) //
                 .build();
         assertEquals(cache.get(), "0");
@@ -88,10 +87,10 @@ class ZkNotifyReloadCacheTest {
     @Disabled
     @Test
     void testDynamicScheduled() {
-        count.set(0);
+        AtomicInteger count = new AtomicInteger();
         int[] delay = { 1 };
         ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(this::build) //
+                .withCacheFactory(() -> build(count)) //
                 .enableAutoReload(() -> ofSeconds(delay[0]++)) //
                 .build();
         assertEquals(cache.get(), "0");
@@ -121,10 +120,10 @@ class ZkNotifyReloadCacheTest {
 
     @Test
     void testRandomSleep() {
-        count.set(0);
+        AtomicInteger count = new AtomicInteger();
         logger.info("test random sleep.");
         ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(this::build) //
+                .withCacheFactory(() -> build(count)) //
                 .withNotifyZkPath("/test") //
                 .withMaxRandomSleepOnNotifyReload(15, SECONDS) //
                 .withCuratorFactory(() -> curatorFramework) //
@@ -151,12 +150,12 @@ class ZkNotifyReloadCacheTest {
 
     @Test
     void testDynamicRandomSleep() {
-        count.set(0);
+        AtomicInteger count = new AtomicInteger();
         logger.info("test random sleep.");
         long[] max = { 0L };
         LongSupplier maxSleep = () -> max[0];
         ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(this::build) //
+                .withCacheFactory(() -> build(count)) //
                 .withNotifyZkPath("/test") //
                 .withMaxRandomSleepOnNotifyReload(maxSleep) //
                 .withCuratorFactory(() -> curatorFramework) //
@@ -306,7 +305,7 @@ class ZkNotifyReloadCacheTest {
         assertSame(IOException.class, exception1.getCause().getClass());
     }
 
-    private String build() {
+    private String build(AtomicInteger count) {
         return String.valueOf(count.getAndIncrement());
     }
 }
