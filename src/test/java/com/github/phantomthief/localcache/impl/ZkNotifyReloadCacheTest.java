@@ -306,16 +306,19 @@ class ZkNotifyReloadCacheTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void testGced() throws Throwable {
-        CacheFactory cacheFactory = Mockito.mock(CacheFactory.class);
+        CacheFactory<String> cacheFactory = Mockito.mock(CacheFactory.class);
         doReturn("1").when(cacheFactory).get();
         ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String>newBuilder() //
-                .withCacheFactory(() -> "1") //
+                .withCacheFactory(cacheFactory) //
                 .firstAccessFailFactory(() -> "EMPTY") //
                 .withCuratorFactory(() -> curatorFramework) //
                 .enableAutoReload(() -> Duration.ofMillis(10))
                 .build();
         cache.get(); // trigger thread pool creation
+        verify(cacheFactory).get();
+        Mockito.reset(cacheFactory);
         cache = null;
         System.gc();
         Thread.sleep(100);
