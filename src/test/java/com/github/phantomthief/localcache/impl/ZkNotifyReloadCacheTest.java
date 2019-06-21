@@ -8,9 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -310,11 +312,14 @@ class ZkNotifyReloadCacheTest {
     void testGced() throws Throwable {
         CacheFactory<String> cacheFactory = Mockito.mock(CacheFactory.class);
         doReturn("1").when(cacheFactory).get();
+        Runnable recycledListener = Mockito.mock(Runnable.class);
+        doNothing().when(recycledListener).run();
         ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String>newBuilder() //
                 .withCacheFactory(cacheFactory) //
                 .firstAccessFailFactory(() -> "EMPTY") //
                 .withCuratorFactory(() -> curatorFramework) //
                 .enableAutoReload(() -> Duration.ofMillis(10))
+                .onResourceRecycled(recycledListener)
                 .build();
         cache.get(); // trigger thread pool creation
         verify(cacheFactory).get();
@@ -322,6 +327,7 @@ class ZkNotifyReloadCacheTest {
         cache = null;
         System.gc();
         Thread.sleep(100);
+        verify(recycledListener).run();
         verify(cacheFactory, never()).get();
     }
 

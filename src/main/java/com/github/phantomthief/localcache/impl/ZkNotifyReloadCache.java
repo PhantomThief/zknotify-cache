@@ -6,6 +6,7 @@ import static com.google.common.base.Throwables.throwIfUnchecked;
 import static java.lang.System.currentTimeMillis;
 import static java.lang.Thread.MIN_PRIORITY;
 import static java.time.Duration.ofMillis;
+import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
@@ -54,6 +55,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final ZkBroadcaster zkBroadcaster;
     private final Supplier<Duration> scheduleRunDuration;
     private final ScheduledExecutorService executor;
+    private final Runnable recycleListener;
 
     private volatile T cachedObject;
 
@@ -66,6 +68,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         this.zkBroadcaster = builder.zkBroadcaster;
         this.scheduleRunDuration = builder.scheduleRunDuration;
         this.executor = builder.executor;
+        this.recycleListener = builder.recycleListener;
     }
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
@@ -143,6 +146,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                                 .build());
                 WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
                 AtomicReference<Future<?>> futureReference = new AtomicReference<>();
+                Runnable capturedRecycleListener = this.recycleListener;
+                Set<String> capturedNotifyZkPaths = this.notifyZkPaths;
                 Future<?> scheduleFuture = scheduleWithDynamicDelay(scheduledExecutor, scheduleRunDuration, () -> {
                     ZkNotifyReloadCache thisCache = cacheReference.get();
 
@@ -154,7 +159,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             }
                             // ZkNotifyReloadCache has been recycled
                             scheduledExecutor.shutdownNow();
-                            logger.warn("ZkNotifyReloadCache is recycled, closing");
+                            logger.warn("ZkNotifyReloadCache is recycled, path: {}", capturedNotifyZkPaths);
+                            if(capturedRecycleListener != null) {
+                                try {
+                                    capturedRecycleListener.run();
+                                } catch (Throwable e) {
+                                    logger.error("run cache recycle listener error", e);
+                                }
+                            }
                         }
                         return;
                     }
@@ -244,6 +256,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private ZkBroadcaster zkBroadcaster;
         private Supplier<Duration> scheduleRunDuration;
         private ScheduledExecutorService executor;
+        private Runnable recycleListener;
 
         @CheckReturnValue
         @Nonnull
@@ -353,6 +366,16 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotify,
                 TimeUnit unit) {
             return withMaxRandomSleepOnNotifyReload(unit.toMillis(maxRandomSleepOnNotify));
+        }
+
+        /**
+         * Set a listener which would be called when cached is gced and a resource release action is performed.
+         */
+        @CheckReturnValue
+        @Nonnull
+        public Builder<T> onResourceRecycled(Runnable recycleListener) {
+            this.recycleListener = requireNonNull(recycleListener);
+            return this;
         }
 
         @Nonnull
