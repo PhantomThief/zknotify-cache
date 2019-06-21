@@ -8,8 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -23,6 +29,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -298,6 +305,30 @@ class ZkNotifyReloadCacheTest {
 
         assertEquals(3, buildCount.get());
         assertEquals("OK3", cache.get());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testGced() throws Throwable {
+        CacheFactory<String> cacheFactory = Mockito.mock(CacheFactory.class);
+        doReturn("1").when(cacheFactory).get();
+        Runnable recycledListener = Mockito.mock(Runnable.class);
+        doNothing().when(recycledListener).run();
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String>newBuilder() //
+                .withCacheFactory(cacheFactory) //
+                .firstAccessFailFactory(() -> "EMPTY") //
+                .withCuratorFactory(() -> curatorFramework) //
+                .enableAutoReload(() -> Duration.ofMillis(10))
+                .onResourceRecycled(recycledListener)
+                .build();
+        cache.get(); // trigger thread pool creation
+        verify(cacheFactory).get();
+        Mockito.reset(cacheFactory);
+        cache = null;
+        System.gc();
+        Thread.sleep(100);
+        verify(recycledListener).run();
+        verify(cacheFactory, never()).get();
     }
 
     private void expectedFail(ZkNotifyReloadCache<String> cache) {
