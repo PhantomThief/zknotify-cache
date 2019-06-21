@@ -30,9 +30,9 @@
     </licenses>
 
     <scm>
-        <connection>scm:git:https://github.com/PhantomThief/zknotify-cache.git</connection>
+        <connection>scm:git:git@github.com:PhantomThief/zknotify-cache.git</connection>
         <url>https://github.com/PhantomThief/zknotify-cache.git</url>
-        <developerConnection>scm:git:https://github.com/PhantomThief/zknotify-cache.git
+        <developerConnection>scm:git:git@github.com:PhantomThief/zknotify-cache.git
         </developerConnection>
     </scm>
 
