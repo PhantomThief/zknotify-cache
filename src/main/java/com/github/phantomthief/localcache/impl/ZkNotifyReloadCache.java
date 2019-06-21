@@ -12,14 +12,17 @@ import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.slf4j.LoggerFactory.getLogger;
 
+import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -133,12 +136,31 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                 });
             }
             if (scheduleRunDuration != null) {
-                ScheduledExecutorService scheduledExecutorService = newScheduledThreadPool(1,
+                ScheduledExecutorService scheduledExecutor = newScheduledThreadPool(1,
                         new ThreadFactoryBuilder() //
                                 .setPriority(MIN_PRIORITY) //
                                 .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d") //
                                 .build());
-                scheduleWithDynamicDelay(scheduledExecutorService, scheduleRunDuration, this::doRebuild);
+                WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
+                AtomicReference<Future<?>> futureReference = new AtomicReference<>();
+                Future<?> scheduleFuture = scheduleWithDynamicDelay(scheduledExecutor, scheduleRunDuration, () -> {
+                    ZkNotifyReloadCache thisCache = cacheReference.get();
+
+                    if (thisCache == null) {
+                        if (!scheduledExecutor.isShutdown()) {
+                            if (futureReference.get() != null) {
+                                // prevent from submitting next task
+                                futureReference.get().cancel(true);
+                            }
+                            // ZkNotifyReloadCache has been recycled
+                            scheduledExecutor.shutdownNow();
+                            logger.warn("ZkNotifyReloadCache is recycled, closing");
+                        }
+                        return;
+                    }
+                    thisCache.doRebuild();
+                });
+                futureReference.set(scheduleFuture);
             }
         }
         return obj;
