@@ -63,7 +63,7 @@ public class ZkBroadcaster {
                 throwIfUnchecked(e);
                 throw new RuntimeException(e);
             }
-            nodeCache.getListenable().addListener(() -> subscribers.parallelStream().forEach(s -> { //
+            nodeCache.getListenable().addListener(() -> subscribers.parallelStream().forEach(s -> {
                 try {
                     s.run();
                 } catch (Throwable e) {

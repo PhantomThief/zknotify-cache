@@ -29,7 +29,7 @@ ZooKeeper通知更新的本地缓存
 ```
 
 ```Java
-ReloadableCache<List<String>> cache = ZkNotifyReloadCache.<List<String>> newBuilder() //
+ReloadableCache<List<String>> cache = ZkNotifyReloadCache.<List<String>> newBuilder()
 				.withCacheFactory(this::buildFromSource) // 配置cache构建方法，必须
 				.withNotifyZkPath("/notifyPath1") // zk监听变更的路径，必须
 				.withCuratorFactory(this::getCuratorFactory) // 提供zkClient的工场方法，必须

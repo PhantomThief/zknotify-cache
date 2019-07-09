@@ -73,10 +73,10 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
             Supplier<CuratorFramework> curatorFactory) {
-        return ZkNotifyReloadCache.<T> newBuilder() //
-                .withCacheFactory(cacheFactory) //
-                .withNotifyZkPath(notifyZkPath) //
-                .withCuratorFactory(curatorFactory) //
+        return ZkNotifyReloadCache.<T> newBuilder()
+                .withCacheFactory(cacheFactory)
+                .withNotifyZkPath(notifyZkPath)
+                .withCuratorFactory(curatorFactory)
                 .build();
     }
 
@@ -118,17 +118,17 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             if (zkBroadcaster != null && notifyZkPaths != null) {
                 notifyZkPaths.forEach(notifyZkPath -> {
                     AtomicLong sleeping = new AtomicLong();
-                    zkBroadcaster.subscribe(notifyZkPath, () -> { //
+                    zkBroadcaster.subscribe(notifyZkPath, () -> {
                         long deadline = sleeping.get();
                         if (deadline > 0L) {
                             logger.warn("ignore rebuild cache:{}, remaining sleep in:{}ms.",
                                     notifyZkPath, (deadline - currentTimeMillis()));
                             return;
                         }
-                        long sleepFor = ofNullable(maxRandomSleepOnNotifyReload) //
-                                .map(LongSupplier::getAsLong) //
-                                .filter(it -> it > 0) //
-                                .map(ThreadLocalRandom.current()::nextLong) //
+                        long sleepFor = ofNullable(maxRandomSleepOnNotifyReload)
+                                .map(LongSupplier::getAsLong)
+                                .filter(it -> it > 0)
+                                .map(ThreadLocalRandom.current()::nextLong)
                                 .orElse(0L);
                         sleeping.set(sleepFor + currentTimeMillis());
                         executor.schedule(() -> {
@@ -140,9 +140,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             }
             if (scheduleRunDuration != null) {
                 ScheduledExecutorService scheduledExecutor = newScheduledThreadPool(1,
-                        new ThreadFactoryBuilder() //
-                                .setPriority(MIN_PRIORITY) //
-                                .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d") //
+                        new ThreadFactoryBuilder()
+                                .setPriority(MIN_PRIORITY)
+                                .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d")
                                 .build());
                 WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
                 AtomicReference<Future<?>> futureReference = new AtomicReference<>();

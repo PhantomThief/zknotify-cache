@@ -65,10 +65,10 @@ class ZkNotifyReloadCacheTest {
     @Test
     void test() {
         AtomicInteger count = new AtomicInteger();
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(() -> build(count)) //
-                .withNotifyZkPath("/test") //
-                .withCuratorFactory(() -> curatorFramework) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(() -> build(count))
+                .withNotifyZkPath("/test")
+                .withCuratorFactory(() -> curatorFramework)
                 .build();
         assertEquals(cache.get(), "0");
         cache.reload();
@@ -80,9 +80,9 @@ class ZkNotifyReloadCacheTest {
     @Test
     void testScheduled() {
         AtomicInteger count = new AtomicInteger();
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(() -> build(count)) //
-                .enableAutoReload(1, SECONDS) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(() -> build(count))
+                .enableAutoReload(1, SECONDS)
                 .build();
         assertEquals(cache.get(), "0");
         sleepUninterruptibly(1300, MILLISECONDS);
@@ -96,9 +96,9 @@ class ZkNotifyReloadCacheTest {
     void testDynamicScheduled() {
         AtomicInteger count = new AtomicInteger();
         int[] delay = { 1 };
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(() -> build(count)) //
-                .enableAutoReload(() -> ofSeconds(delay[0]++)) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(() -> build(count))
+                .enableAutoReload(() -> ofSeconds(delay[0]++))
                 .build();
         assertEquals(cache.get(), "0");
         sleepUninterruptibly(1300, MILLISECONDS);
@@ -129,11 +129,11 @@ class ZkNotifyReloadCacheTest {
     void testRandomSleep() {
         AtomicInteger count = new AtomicInteger();
         logger.info("test random sleep.");
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(() -> build(count)) //
-                .withNotifyZkPath("/test") //
-                .withMaxRandomSleepOnNotifyReload(15, SECONDS) //
-                .withCuratorFactory(() -> curatorFramework) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(() -> build(count))
+                .withNotifyZkPath("/test")
+                .withMaxRandomSleepOnNotifyReload(15, SECONDS)
+                .withCuratorFactory(() -> curatorFramework)
                 .build();
         assertEquals(cache.get(), "0");
         cache.reload();
@@ -161,11 +161,11 @@ class ZkNotifyReloadCacheTest {
         logger.info("test random sleep.");
         long[] max = { 0L };
         LongSupplier maxSleep = () -> max[0];
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(() -> build(count)) //
-                .withNotifyZkPath("/test") //
-                .withMaxRandomSleepOnNotifyReload(maxSleep) //
-                .withCuratorFactory(() -> curatorFramework) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(() -> build(count))
+                .withNotifyZkPath("/test")
+                .withMaxRandomSleepOnNotifyReload(maxSleep)
+                .withCuratorFactory(() -> curatorFramework)
                 .build();
         max[0] = SECONDS.toMillis(15);
         assertEquals(cache.get(), "0");
@@ -192,7 +192,7 @@ class ZkNotifyReloadCacheTest {
     @Test
     void testCacheFactoryWithPrevValue() {
         Long[] data = {null};
-        ZkNotifyReloadCache<Long> cache = ZkNotifyReloadCache.<Long> newBuilder() //
+        ZkNotifyReloadCache<Long> cache = ZkNotifyReloadCache.<Long> newBuilder()
                 .withCacheFactoryEx(prev -> {
                     assertEquals(data[0], prev);
                     if (data[0] == null) {
@@ -200,7 +200,7 @@ class ZkNotifyReloadCacheTest {
                     }
                     data[0] ++;
                     return data[0];
-                }) //
+                })
                 .enableAutoReload(10, TimeUnit.MICROSECONDS)
                 .build();
         cache.get();
@@ -221,10 +221,10 @@ class ZkNotifyReloadCacheTest {
                 return "OK" + count;
             }
         };
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(factory) //
-                .withNotifyZkPath("/test") //
-                .withCuratorFactory(() -> curatorFramework) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(factory)
+                .withNotifyZkPath("/test")
+                .withCuratorFactory(() -> curatorFramework)
                 .build();
         expectedFail(cache);
         assertEquals(1, buildCount.get());
@@ -280,11 +280,11 @@ class ZkNotifyReloadCacheTest {
                 return "OK" + count;
             }
         };
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder() //
-                .withCacheFactory(factory) //
-                .withNotifyZkPath("/test") //
-                .firstAccessFailFactory(() -> "EMPTY") //
-                .withCuratorFactory(() -> curatorFramework) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(factory)
+                .withNotifyZkPath("/test")
+                .firstAccessFailFactory(() -> "EMPTY")
+                .withCuratorFactory(() -> curatorFramework)
                 .build();
         assertEquals("EMPTY", cache.get());
         assertEquals(1, buildCount.get());
@@ -314,10 +314,10 @@ class ZkNotifyReloadCacheTest {
         doReturn("1").when(cacheFactory).get();
         Runnable recycledListener = Mockito.mock(Runnable.class);
         doNothing().when(recycledListener).run();
-        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String>newBuilder() //
-                .withCacheFactory(cacheFactory) //
-                .firstAccessFailFactory(() -> "EMPTY") //
-                .withCuratorFactory(() -> curatorFramework) //
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String>newBuilder()
+                .withCacheFactory(cacheFactory)
+                .firstAccessFailFactory(() -> "EMPTY")
+                .withCuratorFactory(() -> curatorFramework)
                 .enableAutoReload(() -> Duration.ofMillis(10))
                 .onResourceRecycled(recycledListener)
                 .build();
