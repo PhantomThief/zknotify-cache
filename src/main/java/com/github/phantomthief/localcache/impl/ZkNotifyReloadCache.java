@@ -37,6 +37,7 @@ import org.slf4j.Logger;
 import com.github.phantomthief.localcache.CacheFactory;
 import com.github.phantomthief.localcache.CacheFactoryEx;
 import com.github.phantomthief.localcache.ReloadableCache;
+import com.github.phantomthief.zookeeper.broadcast.Broadcaster;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
@@ -52,7 +53,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final Set<String> notifyZkPaths;
     private final Consumer<T> oldCleanup;
     private final LongSupplier maxRandomSleepOnNotifyReload;
-    private final ZkBroadcaster zkBroadcaster;
+    private final Broadcaster broadcaster;
     private final Supplier<Duration> scheduleRunDuration;
     private final ScheduledExecutorService executor;
     private final Runnable recycleListener;
@@ -65,15 +66,15 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         this.notifyZkPaths = builder.notifyZkPaths;
         this.oldCleanup = wrapTry(builder.oldCleanup);
         this.maxRandomSleepOnNotifyReload = builder.maxRandomSleepOnNotifyReload;
-        this.zkBroadcaster = builder.zkBroadcaster;
+        this.broadcaster = builder.broadcaster;
         this.scheduleRunDuration = builder.scheduleRunDuration;
         this.executor = builder.executor;
         this.recycleListener = builder.recycleListener;
     }
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
-            Supplier<CuratorFramework> curatorFactory) {
-        return ZkNotifyReloadCache.<T> newBuilder()
+                                                Supplier<CuratorFramework> curatorFactory) {
+        return ZkNotifyReloadCache.<T>newBuilder()
                 .withCacheFactory(cacheFactory)
                 .withNotifyZkPath(notifyZkPath)
                 .withCuratorFactory(curatorFactory)
@@ -113,12 +114,23 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                 throw new CacheBuildFailedException("fail to build cache.", e);
             }
         }
-        
+
         if (obj != null) {
-            if (zkBroadcaster != null && notifyZkPaths != null) {
+            if (broadcaster != null && notifyZkPaths != null) {
                 notifyZkPaths.forEach(notifyZkPath -> {
                     AtomicLong sleeping = new AtomicLong();
-                    zkBroadcaster.subscribe(notifyZkPath, () -> {
+                    AtomicLong lastNotifyTimestamp = new AtomicLong();
+                    broadcaster.subscribe(notifyZkPath, content -> {
+                        long timestamp = Long.parseLong(content);
+                        long lastNotify;
+                        do {
+                            lastNotify = lastNotifyTimestamp.get();
+                            if (lastNotify >= timestamp) {
+                                logger.debug("notify with older timestamp {} than {}, skip", timestamp, lastNotify);
+                                return;
+                            }
+                        } while (!lastNotifyTimestamp.compareAndSet(lastNotify, timestamp));
+
                         long deadline = sleeping.get();
                         if (deadline > 0L) {
                             logger.warn("ignore rebuild cache:{}, remaining sleep in:{}ms.",
@@ -160,7 +172,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             // ZkNotifyReloadCache has been recycled
                             scheduledExecutor.shutdownNow();
                             logger.warn("ZkNotifyReloadCache is recycled, path: {}", capturedNotifyZkPaths);
-                            if(capturedRecycleListener != null) {
+                            if (capturedRecycleListener != null) {
                                 try {
                                     capturedRecycleListener.run();
                                 } catch (Throwable e) {
@@ -202,8 +214,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
     @Override
     public void reload() {
-        if (zkBroadcaster != null && notifyZkPaths != null) {
-            notifyZkPaths.forEach(notifyZkPath -> zkBroadcaster.broadcast(notifyZkPath,
+        if (broadcaster != null && notifyZkPaths != null) {
+            notifyZkPaths.forEach(notifyZkPath -> broadcaster.broadcast(notifyZkPath,
                     String.valueOf(currentTimeMillis())));
         } else {
             logger.warn("no zk broadcast or notify zk path found. ignore reload.");
@@ -253,7 +265,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private Set<String> notifyZkPaths;
         private Consumer<T> oldCleanup;
         private LongSupplier maxRandomSleepOnNotifyReload;
-        private ZkBroadcaster zkBroadcaster;
+        private Broadcaster broadcaster;
         private Supplier<Duration> scheduleRunDuration;
         private ScheduledExecutorService executor;
         private Runnable recycleListener;
@@ -281,7 +293,14 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @CheckReturnValue
         @Nonnull
         public Builder<T> withZkBroadcaster(ZkBroadcaster zkBroadcaster) {
-            this.zkBroadcaster = zkBroadcaster;
+            this.broadcaster = zkBroadcaster;
+            return this;
+        }
+
+        @CheckReturnValue
+        @Nonnull
+        public Builder<T> withBroadcaster(Broadcaster broadcaster) {
+            this.broadcaster = requireNonNull(broadcaster);
             return this;
         }
 
@@ -294,8 +313,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @CheckReturnValue
         @Nonnull
         public Builder<T> withCuratorFactory(Supplier<CuratorFramework> curatorFactory,
-                String broadcastPrefix) {
-            this.zkBroadcaster = new ZkBroadcaster(curatorFactory, broadcastPrefix);
+                                             String broadcastPrefix) {
+            this.broadcaster = new ZkBroadcaster(curatorFactory, broadcastPrefix);
             return this;
         }
 
@@ -356,7 +375,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @CheckReturnValue
         @Nonnull
         public Builder<T>
-                withMaxRandomSleepOnNotifyReload(LongSupplier maxRandomSleepOnNotifyReloadInMs) {
+        withMaxRandomSleepOnNotifyReload(LongSupplier maxRandomSleepOnNotifyReloadInMs) {
             this.maxRandomSleepOnNotifyReload = maxRandomSleepOnNotifyReloadInMs;
             return this;
         }
@@ -364,7 +383,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @CheckReturnValue
         @Nonnull
         public Builder<T> withMaxRandomSleepOnNotifyReload(long maxRandomSleepOnNotify,
-                TimeUnit unit) {
+                                                           TimeUnit unit) {
             return withMaxRandomSleepOnNotifyReload(unit.toMillis(maxRandomSleepOnNotify));
         }
 
@@ -387,7 +406,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private void ensure() {
             checkNotNull(cacheFactory, "no cache factory.");
             if (notifyZkPaths != null && !notifyZkPaths.isEmpty()) {
-                checkNotNull(zkBroadcaster, "no zk broadcaster.");
+                checkNotNull(broadcaster, "no broadcaster.");
             }
             if (executor == null) {
                 executor = newSingleThreadScheduledExecutor();

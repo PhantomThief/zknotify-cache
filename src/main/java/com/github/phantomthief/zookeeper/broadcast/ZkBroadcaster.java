@@ -2,6 +2,7 @@ package com.github.phantomthief.zookeeper.broadcast;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Throwables.throwIfUnchecked;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.curator.utils.ZKPaths.makePath;
 import static org.slf4j.LoggerFactory.getLogger;
 
@@ -14,6 +15,7 @@ import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 
 import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.recipes.cache.ChildData;
 import org.apache.curator.framework.recipes.cache.NodeCache;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
@@ -21,7 +23,7 @@ import org.slf4j.Logger;
 /**
  * @author w.vela
  */
-public class ZkBroadcaster {
+public class ZkBroadcaster implements Broadcaster {
 
     private static final String DEFAULT_ZK_PREFIX = "/broadcast";
 
@@ -29,7 +31,7 @@ public class ZkBroadcaster {
 
     private final Supplier<CuratorFramework> curatorFactory;
     private final String zkPrefix;
-    private final ConcurrentMap<String, Set<Runnable>> subscribeMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Set<Subscriber>> subscribeMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, NodeCache> nodeCacheMap = new ConcurrentHashMap<>();
 
     public ZkBroadcaster(Supplier<CuratorFramework> curatorFactory, String zkPrefix) {
@@ -41,11 +43,12 @@ public class ZkBroadcaster {
         this(curatorFactory, DEFAULT_ZK_PREFIX);
     }
 
-    public void subscribe(@Nonnull String path, @Nonnull Runnable subscriber) {
+    @Override
+    public void subscribe(@Nonnull String path, @Nonnull Subscriber subscriber) {
         checkNotNull(path);
         checkNotNull(subscriber);
 
-        Set<Runnable> subscribers = subscribeMap.compute(path, (k, oldSet) -> {
+        Set<Subscriber> subscribers = subscribeMap.compute(path, (k, oldSet) -> {
             if (oldSet == null) {
                 oldSet = new HashSet<>();
             }
@@ -63,25 +66,36 @@ public class ZkBroadcaster {
                 throwIfUnchecked(e);
                 throw new RuntimeException(e);
             }
-            nodeCache.getListenable().addListener(() -> subscribers.parallelStream().forEach(s -> {
-                try {
-                    s.run();
-                } catch (Throwable e) {
-                    logger.error("Ops. fail to do handle for:{}->{}", zkPrefix, s, e);
+            nodeCache.getListenable().addListener(() -> {
+                String content;
+                ChildData currentData = nodeCache.getCurrentData();
+                if (currentData != null && currentData.getData() != null) {
+                    content = new String(currentData.getData(), UTF_8);
+                } else {
+                    content = "";
                 }
-            }));
+
+                subscribers.parallelStream().forEach(s -> {
+                    try {
+                        s.onChanged(content);
+                    } catch (Throwable e) {
+                        logger.error("Ops. fail to do handle for:{}->{}", zkPrefix, s, e);
+                    }
+                });
+            });
             return nodeCache;
         });
     }
 
+    @Override
     public void broadcast(String path, String content) {
         String realPath = makePath(zkPrefix, path);
         try {
             try {
-                curatorFactory.get().setData().forPath(realPath, content.getBytes());
+                curatorFactory.get().setData().forPath(realPath, content.getBytes(UTF_8));
             } catch (KeeperException.NoNodeException e) {
                 curatorFactory.get().create().creatingParentsIfNeeded().forPath(realPath,
-                        content.getBytes());
+                        content.getBytes(UTF_8));
             }
         } catch (Throwable e) {
             throwIfUnchecked(e);
