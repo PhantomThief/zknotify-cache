@@ -115,14 +115,14 @@ class ZkNotifyReloadCacheTest {
     void testNotify() {
         ZkBroadcaster zkBroadcaster = new ZkBroadcaster(() -> curatorFramework);
         AtomicReference<String> received = new AtomicReference<>();
-        zkBroadcaster.subscribe("/myTest", () -> {
+        zkBroadcaster.subscribe("/myTest", content -> {
             logger.info("received.");
-            received.set("test");
+            received.set(content);
         });
         assertNull(received.get());
         zkBroadcaster.broadcast("/myTest", "myContent");
         sleepUninterruptibly(1, SECONDS);
-        assertEquals("test", received.get());
+        assertEquals("myContent", received.get());
     }
 
     @Test
