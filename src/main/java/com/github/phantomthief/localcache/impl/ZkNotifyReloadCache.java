@@ -121,7 +121,13 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                     AtomicLong sleeping = new AtomicLong();
                     AtomicLong lastNotifyTimestamp = new AtomicLong();
                     broadcaster.subscribe(notifyZkPath, content -> {
-                        long timestamp = Long.parseLong(content);
+                        long timestamp;
+                        try {
+                            timestamp = Long.parseLong(content);
+                        } catch (Exception e) { // let error throw
+                            logger.warn("parse notify timestamp {} failed", content, e);
+                            timestamp = System.currentTimeMillis();
+                        }
                         long lastNotify;
                         do {
                             lastNotify = lastNotifyTimestamp.get();
@@ -299,7 +305,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
         @CheckReturnValue
         @Nonnull
-        public Builder<T> withBroadcaster(Broadcaster broadcaster) {
+        public Builder<T> withBroadcaster(@Nonnull Broadcaster broadcaster) {
             this.broadcaster = requireNonNull(broadcaster);
             return this;
         }
