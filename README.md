@@ -1,5 +1,10 @@
-zknotify-cache [![Build Status](https://travis-ci.org/PhantomThief/zknotify-cache.svg)](https://travis-ci.org/PhantomThief/zknotify-cache) [![Coverage Status](https://coveralls.io/repos/github/PhantomThief/zknotify-cache/badge.svg?branch=master)](https://coveralls.io/github/PhantomThief/zknotify-cache?branch=master)
+zknotify-cache
 =======================
+[![Build Status](https://travis-ci.org/PhantomThief/zknotify-cache.svg)](https://travis-ci.org/PhantomThief/zknotify-cache)
+[![Coverage Status](https://coveralls.io/repos/github/PhantomThief/zknotify-cache/badge.svg?branch=master)](https://coveralls.io/github/PhantomThief/zknotify-cache?branch=master)
+[![Total alerts](https://img.shields.io/lgtm/alerts/g/PhantomThief/zknotify-cache.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/PhantomThief/zknotify-cache/alerts/)
+[![Language grade: Java](https://img.shields.io/lgtm/grade/java/g/PhantomThief/zknotify-cache.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/PhantomThief/zknotify-cache/context:java)
+[![Maven Central](https://img.shields.io/maven-central/v/com.github.phantomthief/zknotify-cache)](https://search.maven.org/artifact/com.github.phantomthief/zknotify-cache/)
 
 ZooKeeper通知更新的本地缓存
 
@@ -9,24 +14,6 @@ ZooKeeper通知更新的本地缓存
 * 只支持Java8
 
 ## Get Started
-
-* Stable版本
-```xml
-<dependency>
-    <groupId>com.github.phantomthief</groupId>
-    <artifactId>zknotify-cache</artifactId>
-    <version>0.1.7</version>
-</dependency>
-```
-
-* Development版本
-```xml
-<dependency>
-    <groupId>com.github.phantomthief</groupId>
-    <artifactId>zknotify-cache</artifactId>
-    <version>0.1.8-SNAPSHOT</version>
-</dependency>
-```
 
 ```Java
 ReloadableCache<List<String>> cache = ZkNotifyReloadCache.<List<String>> newBuilder()
