@@ -131,8 +131,8 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                         long lastNotify;
                         do {
                             lastNotify = lastNotifyTimestamp.get();
-                            if (lastNotify >= timestamp) {
-                                logger.debug("notify with older timestamp {} than {}, skip", timestamp, lastNotify);
+                            if (lastNotify == timestamp) {
+                                logger.debug("notify with same timestamp {} with previous, skip", timestamp);
                                 return;
                             }
                         } while (!lastNotifyTimestamp.compareAndSet(lastNotify, timestamp));
@@ -221,8 +221,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     @Override
     public void reload() {
         if (broadcaster != null && notifyZkPaths != null) {
+            String content = String.valueOf(currentTimeMillis());
             notifyZkPaths.forEach(notifyZkPath -> broadcaster.broadcast(notifyZkPath,
-                    String.valueOf(currentTimeMillis())));
+                    content));
         } else {
             logger.warn("no zk broadcast or notify zk path found. ignore reload.");
         }
