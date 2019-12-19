@@ -46,7 +46,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
  */
 public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
 
-    private static Logger logger = getLogger(ZkNotifyReloadCache.class);
+    private static final Logger logger = getLogger(ZkNotifyReloadCache.class);
 
     private final CacheFactoryEx<T> cacheFactory;
     private final Supplier<T> firstAccessFailFactory;
@@ -165,7 +165,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                 WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
                 AtomicReference<Future<?>> futureReference = new AtomicReference<>();
                 Runnable capturedRecycleListener = this.recycleListener;
-                Set<String> capturedNotifyZkPaths = this.notifyZkPaths;
                 Future<?> scheduleFuture = scheduleWithDynamicDelay(scheduledExecutor, scheduleRunDuration, () -> {
                     ZkNotifyReloadCache thisCache = cacheReference.get();
 
@@ -177,7 +176,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                             }
                             // ZkNotifyReloadCache has been recycled
                             scheduledExecutor.shutdownNow();
-                            logger.warn("ZkNotifyReloadCache is recycled, path: {}", capturedNotifyZkPaths);
+                            logger.warn("ZkNotifyReloadCache is recycled, path: {}", this.notifyZkPaths);
                             if (capturedRecycleListener != null) {
                                 try {
                                     capturedRecycleListener.run();
