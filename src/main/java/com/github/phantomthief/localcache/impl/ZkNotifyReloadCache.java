@@ -30,6 +30,7 @@ import java.util.function.Supplier;
 
 import javax.annotation.CheckReturnValue;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.Logger;
@@ -55,6 +56,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private final LongSupplier maxRandomSleepOnNotifyReload;
     private final Broadcaster broadcaster;
     private final Supplier<Duration> scheduleRunDuration;
+    @Nullable
     private final ScheduledExecutorService executor;
     private final Runnable recycleListener;
 
@@ -149,6 +151,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                                 .map(ThreadLocalRandom.current()::nextLong)
                                 .orElse(0L);
                         sleeping.set(sleepFor + currentTimeMillis());
+                        // executor should not be null when enable notify
                         executor.schedule(() -> {
                             sleeping.set(0L);
                             doRebuild();
@@ -273,6 +276,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         private LongSupplier maxRandomSleepOnNotifyReload;
         private Broadcaster broadcaster;
         private Supplier<Duration> scheduleRunDuration;
+        @Nullable
         private ScheduledExecutorService executor;
         private Runnable recycleListener;
 
@@ -413,9 +417,9 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             checkNotNull(cacheFactory, "no cache factory.");
             if (notifyZkPaths != null && !notifyZkPaths.isEmpty()) {
                 checkNotNull(broadcaster, "no broadcaster.");
-            }
-            if (executor == null) {
-                executor = newSingleThreadScheduledExecutor();
+                if (executor == null) {
+                    executor = newSingleThreadScheduledExecutor();
+                }
             }
         }
     }
