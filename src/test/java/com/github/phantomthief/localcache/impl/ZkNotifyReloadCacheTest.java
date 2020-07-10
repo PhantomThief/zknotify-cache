@@ -73,6 +73,8 @@ class ZkNotifyReloadCacheTest {
         cache.reload();
         sleepUninterruptibly(1, SECONDS);
         assertEquals(cache.get(), "1");
+        cache.reloadLocal();
+        assertEquals(cache.get(), "2");
     }
 
     @Disabled
