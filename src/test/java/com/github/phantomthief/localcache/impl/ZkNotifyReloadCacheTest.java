@@ -334,6 +334,28 @@ class ZkNotifyReloadCacheTest {
         verify(cacheFactory, never()).get();
     }
 
+    @Test
+    void testFirstFailedFactory() {
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .firstAccessFailFactory(() -> "test")
+                .withCacheFactory(() -> {
+                    throw new Exception();
+                })
+                .build();
+        assertEquals("test", cache.get());
+    }
+
+    @Test
+    void testFirstFailed() {
+        ZkNotifyReloadCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactory(() -> {
+                    throw new IOException();
+                })
+                .build();
+        CacheBuildFailedException e = assertThrows(CacheBuildFailedException.class, cache::get);
+        assertSame(IOException.class, e.getCause().getClass());
+    }
+
     private void expectedFail(ZkNotifyReloadCache<String> cache) {
         CacheBuildFailedException exception1 = assertThrows(CacheBuildFailedException.class, cache::get);
         assertSame(IOException.class, exception1.getCause().getClass());
