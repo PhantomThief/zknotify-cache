@@ -17,6 +17,8 @@ import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -40,6 +42,8 @@ import com.github.phantomthief.localcache.CacheFactoryEx;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.Broadcaster;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
+import com.google.common.base.Throwables;
+import com.google.common.util.concurrent.SettableFuture;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
@@ -59,6 +63,10 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     @Nullable
     private final ScheduledExecutorService executor;
     private final Runnable recycleListener;
+    /**
+     * Cache init时在另外的线程执行，initCacheThreadFactory 提供创建此线程的方法
+     */
+    private final ThreadFactory initCacheThreadFactory;
 
     private volatile T cachedObject;
 
@@ -72,6 +80,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         this.scheduleRunDuration = builder.scheduleRunDuration;
         this.executor = builder.executor;
         this.recycleListener = builder.recycleListener;
+        this.initCacheThreadFactory = builder.initCacheThreadFactory;
     }
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
@@ -92,7 +101,34 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         if (cachedObject == null) {
             synchronized (ZkNotifyReloadCache.this) {
                 if (cachedObject == null) {
-                    cachedObject = init();
+                    // init 逻辑改为在另外的线程执行，以避免被caller线程的interrupt打断
+                    // 业务使用cache时，如果做了超时熔断并使用了interrupt，则可能造成cache永远都不能成功init，导致每次执行都init一次cache
+                    SettableFuture<T> future = SettableFuture.create();
+                    Thread t = initCacheThreadFactory.newThread(() -> {
+                        try {
+                            T value = this.init();
+                            future.set(value);
+                        } catch (Throwable e) {
+                            future.setException(e);
+                        }
+
+                    });
+                    t.start();
+                    try {
+                        cachedObject = future.get();
+                    } catch (InterruptedException e) {
+                        // 方法签名不能抛InterruptedException的情形下，抛CancellationException是可接受的一个方案
+                        // 目前JDK里面也是这么处理的
+                        CancellationException ce = new CancellationException("cancel by Thread interrupt");
+                        ce.initCause(e);
+                        throw ce;
+                    } catch (ExecutionException e) {
+                        if (e.getCause() != null) {
+                            // 应该总是走会到这里，抛出来原始的异常，保持和原先在caller线程直接抛异常的行为一致
+                            Throwables.throwIfUnchecked(e.getCause());
+                        }
+                        throw new CacheBuildFailedException("failed to build cache", e);
+                    }
                 }
             }
         }
@@ -279,6 +315,10 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @Nullable
         private ScheduledExecutorService executor;
         private Runnable recycleListener;
+        /**
+         * Cache init时在另外的线程执行，initCacheThreadFactory 提供创建此线程的方法
+         */
+        private ThreadFactory initCacheThreadFactory;
 
         @CheckReturnValue
         @Nonnull
@@ -407,6 +447,17 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
+        /**
+         * Cache 的init逻辑在另外的线程执行，以避免被caller 线程此interrupt影响。
+         * 此方法可以设置一个用来创建Cache初始化线程的ThreadFactory.
+         */
+        @CheckReturnValue
+        @Nonnull
+        public Builder<T> withInitCacheThreadFactory(ThreadFactory threadFactory) {
+            this.initCacheThreadFactory = requireNonNull(threadFactory);
+            return this;
+        }
+
         @Nonnull
         public ZkNotifyReloadCache<T> build() {
             ensure();
@@ -420,6 +471,12 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                 if (executor == null) {
                     executor = newSingleThreadScheduledExecutor();
                 }
+            }
+            if (initCacheThreadFactory == null) {
+                initCacheThreadFactory = new ThreadFactoryBuilder()
+                        .setDaemon(true)
+                        .setNameFormat("initReloadCacheThread-" + notifyZkPaths + "-%d")
+                        .build();
             }
         }
     }
