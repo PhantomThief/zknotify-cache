@@ -114,14 +114,10 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                     if (this.initFuture == null || this.initFuture.isDone()) {
                         SettableFuture<T> future = SettableFuture.create();
                         initCacheExecutor.execute(() -> {
-                            String originThreadName = Thread.currentThread().getName();
                             try {
-                                Thread.currentThread().setName(originThreadName + "-reloadCacheInit-" + notifyZkPaths);
                                 future.set(this.init());
                             } catch (Throwable e) {
                                 future.setException(e);
-                            } finally {
-                                Thread.currentThread().setName(originThreadName);
                             }
                         });
                         this.initFuture = future;
