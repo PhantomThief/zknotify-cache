@@ -17,10 +17,6 @@ import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -44,9 +40,6 @@ import com.github.phantomthief.localcache.CacheFactoryEx;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.Broadcaster;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
-import com.google.common.base.Throwables;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.SettableFuture;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
@@ -66,15 +59,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     @Nullable
     private final ScheduledExecutorService executor;
     private final Runnable recycleListener;
-    /**
-     * Cache init有时需要在另外的线程执行，由initCacheExecutor提供。也可以是directExecutor
-     */
-    private final Executor initCacheExecutor;
-
-    /**
-     * 存储init的Future，以避免初次get被interrupt之后，下次get又创建线程执行一次init
-     */
-    private Future<T> initFuture;
 
     private volatile T cachedObject;
 
@@ -88,7 +72,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         this.scheduleRunDuration = builder.scheduleRunDuration;
         this.executor = builder.executor;
         this.recycleListener = builder.recycleListener;
-        this.initCacheExecutor = builder.initCacheExecutor;
     }
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
@@ -109,35 +92,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         if (cachedObject == null) {
             synchronized (ZkNotifyReloadCache.this) {
                 if (cachedObject == null) {
-                    // init 逻辑改为在另外的线程执行，以避免被caller线程的interrupt打断
-                    // 业务使用cache时，如果做了超时熔断并使用了interrupt，则可能造成cache永远都不能成功init，导致每次执行都init一次cache
-                    if (this.initFuture == null || this.initFuture.isDone()) {
-                        SettableFuture<T> future = SettableFuture.create();
-                        initCacheExecutor.execute(() -> {
-                            try {
-                                future.set(this.init());
-                            } catch (Throwable e) {
-                                future.setException(e);
-                            }
-                        });
-                        this.initFuture = future;
-                    }
-
-                    try {
-                        cachedObject = this.initFuture.get();
-                    } catch (InterruptedException e) {
-                        // 方法签名不能抛InterruptedException的情形下，抛CancellationException是可接受的一个方案
-                        // 目前JDK里面也是这么处理的
-                        CancellationException ce = new CancellationException("cancel by Thread interrupt");
-                        ce.initCause(e);
-                        throw ce;
-                    } catch (ExecutionException e) {
-                        if (e.getCause() != null) {
-                            // 应该总是走会到这里，抛出来原始的异常，保持和原先在caller线程直接抛异常的行为一致
-                            Throwables.throwIfUnchecked(e.getCause());
-                        }
-                        throw new CacheBuildFailedException("failed to build cache", e);
-                    }
+                    cachedObject = init();
                 }
             }
         }
@@ -324,10 +279,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @Nullable
         private ScheduledExecutorService executor;
         private Runnable recycleListener;
-        /**
-         * Cache init有时需要在另外的线程执行，由initCacheExecutor提供。也可以是directExecutor
-         */
-        private Executor initCacheExecutor;
 
         @CheckReturnValue
         @Nonnull
@@ -456,18 +407,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
-        /**
-         * 允许Cache 的init逻辑在另外的线程执行，以避免被caller 线程此interrupt影响。
-         * 此方法可以设置一个用来执行Cache初始化的Executor.
-         * @param executor 用来执行Cache初始化的ExecutorService, 不会被关闭
-         */
-        @CheckReturnValue
-        @Nonnull
-        public Builder<T> withInitCacheExecutor(Executor executor) {
-            this.initCacheExecutor = requireNonNull(executor);
-            return this;
-        }
-
         @Nonnull
         public ZkNotifyReloadCache<T> build() {
             ensure();
@@ -481,9 +420,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                 if (executor == null) {
                     executor = newSingleThreadScheduledExecutor();
                 }
-            }
-            if (initCacheExecutor == null) {
-                initCacheExecutor = MoreExecutors.directExecutor();
             }
         }
     }
