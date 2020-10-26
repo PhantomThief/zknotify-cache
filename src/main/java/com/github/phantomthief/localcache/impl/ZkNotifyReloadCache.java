@@ -17,6 +17,7 @@ import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -40,6 +41,8 @@ import com.github.phantomthief.localcache.CacheFactoryEx;
 import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.Broadcaster;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
+import com.google.common.base.Throwables;
+import com.google.common.util.concurrent.SettableFuture;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
@@ -118,84 +121,116 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         if (obj != null) {
-            if (broadcaster != null && notifyZkPaths != null) {
-                notifyZkPaths.forEach(notifyZkPath -> {
-                    AtomicLong sleeping = new AtomicLong();
-                    AtomicLong lastNotifyTimestamp = new AtomicLong();
-                    broadcaster.subscribe(notifyZkPath, content -> {
-                        long timestamp;
-                        try {
-                            timestamp = Long.parseLong(content);
-                        } catch (Exception e) { // let error throw
-                            logger.warn("parse notify timestamp {} failed", content, e);
-                            timestamp = System.currentTimeMillis();
-                        }
-                        long lastNotify;
-                        do {
-                            lastNotify = lastNotifyTimestamp.get();
-                            if (lastNotify == timestamp) {
-                                logger.debug("notify with same timestamp {} with previous, skip", timestamp);
-                                return;
-                            }
-                        } while (!lastNotifyTimestamp.compareAndSet(lastNotify, timestamp));
+            // zk subscribe等操作放到另外的线程里执行，避免被 interrupt 之后，cache 构建整个失败
+            // cache build本身的逻辑由使用方保证能处理好Thread interrupt
+            SettableFuture<Void> future = SettableFuture.create();
+            Thread t = new Thread(() -> {
+                try {
+                    postCacheInit();
+                    future.set(null);
+                } catch (Throwable e) {
+                    future.setException(e);
+                }
+            });
+            t.setName("zkAutoReloadThread-postCacheInit-" + notifyZkPaths);
+            t.setDaemon(true);
+            t.start();
 
-                        long deadline = sleeping.get();
-                        if (deadline > 0L) {
-                            logger.warn("ignore rebuild cache:{}, remaining sleep in:{}ms.",
-                                    notifyZkPath, (deadline - currentTimeMillis()));
-                            return;
-                        }
-                        long sleepFor = ofNullable(maxRandomSleepOnNotifyReload)
-                                .map(LongSupplier::getAsLong)
-                                .filter(it -> it > 0)
-                                .map(ThreadLocalRandom.current()::nextLong)
-                                .orElse(0L);
-                        sleeping.set(sleepFor + currentTimeMillis());
-                        // executor should not be null when enable notify
-                        executor.schedule(() -> {
-                            sleeping.set(0L);
-                            doRebuild();
-                        }, sleepFor, MILLISECONDS);
-                    });
-                });
-            }
-            if (scheduleRunDuration != null) {
-                ScheduledExecutorService scheduledExecutor = newScheduledThreadPool(1,
-                        new ThreadFactoryBuilder()
-                                .setPriority(MIN_PRIORITY)
-                                .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d")
-                                .build());
-                WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
-                AtomicReference<Future<?>> futureReference = new AtomicReference<>();
-                Runnable capturedRecycleListener = this.recycleListener;
-                Future<?> scheduleFuture = scheduleWithDynamicDelay(scheduledExecutor, scheduleRunDuration, () -> {
-                    ZkNotifyReloadCache thisCache = cacheReference.get();
-
-                    if (thisCache == null) {
-                        if (!scheduledExecutor.isShutdown()) {
-                            if (futureReference.get() != null) {
-                                // prevent from submitting next task
-                                futureReference.get().cancel(true);
-                            }
-                            // ZkNotifyReloadCache has been recycled
-                            scheduledExecutor.shutdownNow();
-                            logger.warn("ZkNotifyReloadCache is recycled, path: {}", this.notifyZkPaths);
-                            if (capturedRecycleListener != null) {
-                                try {
-                                    capturedRecycleListener.run();
-                                } catch (Throwable e) {
-                                    logger.error("run cache recycle listener error", e);
-                                }
-                            }
-                        }
-                        return;
-                    }
-                    thisCache.doRebuild();
-                });
-                futureReference.set(scheduleFuture);
+            try {
+                future.get();
+            } catch (InterruptedException e) {
+                // 被interrupt了也不能抛异常，直接设置interrupt标记，然cache构建就失败了
+                // FixMe: Cache第一次注册zk，如果被打断了，就没有机会知道最终是注册成功还是注册失败了，后面的cache是可以直接返回值的
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+                if (e.getCause() != null) {
+                    // 正常情况应该都是走到这个分支，直接抛出原始异常
+                    Throwables.throwIfUnchecked(e.getCause());
+                }
+                throw new CacheBuildFailedException("post cache init failed", e);
             }
         }
         return obj;
+    }
+
+    // zk注册，以及启动cache定时reload等逻辑
+    private void postCacheInit() {
+        if (broadcaster != null && notifyZkPaths != null) {
+            notifyZkPaths.forEach(notifyZkPath -> {
+                AtomicLong sleeping = new AtomicLong();
+                AtomicLong lastNotifyTimestamp = new AtomicLong();
+                broadcaster.subscribe(notifyZkPath, content -> {
+                    long timestamp;
+                    try {
+                        timestamp = Long.parseLong(content);
+                    } catch (Exception e) { // let error throw
+                        logger.warn("parse notify timestamp {} failed", content, e);
+                        timestamp = System.currentTimeMillis();
+                    }
+                    long lastNotify;
+                    do {
+                        lastNotify = lastNotifyTimestamp.get();
+                        if (lastNotify == timestamp) {
+                            logger.debug("notify with same timestamp {} with previous, skip", timestamp);
+                            return;
+                        }
+                    } while (!lastNotifyTimestamp.compareAndSet(lastNotify, timestamp));
+
+                    long deadline = sleeping.get();
+                    if (deadline > 0L) {
+                        logger.warn("ignore rebuild cache:{}, remaining sleep in:{}ms.",
+                                notifyZkPath, (deadline - currentTimeMillis()));
+                        return;
+                    }
+                    long sleepFor = ofNullable(maxRandomSleepOnNotifyReload)
+                            .map(LongSupplier::getAsLong)
+                            .filter(it -> it > 0)
+                            .map(ThreadLocalRandom.current()::nextLong)
+                            .orElse(0L);
+                    sleeping.set(sleepFor + currentTimeMillis());
+                    // executor should not be null when enable notify
+                    executor.schedule(() -> {
+                        sleeping.set(0L);
+                        doRebuild();
+                    }, sleepFor, MILLISECONDS);
+                });
+            });
+        }
+        if (scheduleRunDuration != null) {
+            ScheduledExecutorService scheduledExecutor = newScheduledThreadPool(1,
+                    new ThreadFactoryBuilder()
+                            .setPriority(MIN_PRIORITY)
+                            .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d")
+                            .build());
+            WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
+            AtomicReference<Future<?>> futureReference = new AtomicReference<>();
+            Runnable capturedRecycleListener = this.recycleListener;
+            Future<?> scheduleFuture = scheduleWithDynamicDelay(scheduledExecutor, scheduleRunDuration, () -> {
+                ZkNotifyReloadCache thisCache = cacheReference.get();
+
+                if (thisCache == null) {
+                    if (!scheduledExecutor.isShutdown()) {
+                        if (futureReference.get() != null) {
+                            // prevent from submitting next task
+                            futureReference.get().cancel(true);
+                        }
+                        // ZkNotifyReloadCache has been recycled
+                        scheduledExecutor.shutdownNow();
+                        logger.warn("ZkNotifyReloadCache is recycled, path: {}", this.notifyZkPaths);
+                        if (capturedRecycleListener != null) {
+                            try {
+                                capturedRecycleListener.run();
+                            } catch (Throwable e) {
+                                logger.error("run cache recycle listener error", e);
+                            }
+                        }
+                    }
+                    return;
+                }
+                thisCache.doRebuild();
+            });
+            futureReference.set(scheduleFuture);
+        }
     }
 
     private void doRebuild() {

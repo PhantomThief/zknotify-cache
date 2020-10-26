@@ -8,13 +8,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -29,11 +34,15 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.phantomthief.localcache.CacheFactory;
+import com.github.phantomthief.localcache.CacheFactoryEx;
+import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
+import com.google.common.util.concurrent.Uninterruptibles;
 
 /**
  * 所有 @Disabled 的测试用例都需要手工运行确认
@@ -354,6 +363,38 @@ class ZkNotifyReloadCacheTest {
                 .build();
         CacheBuildFailedException e = assertThrows(CacheBuildFailedException.class, cache::get);
         assertSame(IOException.class, e.getCause().getClass());
+    }
+
+    @Test
+    void testInterruptFirstFailed() throws Throwable {
+        CacheFactoryEx<String> cacheFactory = Mockito.mock(CacheFactoryEx.class);
+        Mockito.when(cacheFactory.get(any())).then((Answer<String>) invocation -> {
+            Uninterruptibles.sleepUninterruptibly(100, MILLISECONDS);
+            throw new Exception();
+        }).then((Answer<String>) invocation -> {
+            Uninterruptibles.sleepUninterruptibly(50, MILLISECONDS);
+            return "test";
+        }).then((Answer<String>) invocation -> "shouldNotCalled");
+
+        ReloadableCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
+                .withCacheFactoryEx(cacheFactory)
+                .withCuratorFactory(() -> curatorFramework)
+                .build();
+        Thread ct = Thread.currentThread();
+        Thread t = new Thread(() -> {
+            Uninterruptibles.sleepUninterruptibly(50, MILLISECONDS);
+            ct.interrupt();
+            Uninterruptibles.sleepUninterruptibly(100, MILLISECONDS);
+            ct.interrupt();
+        });
+        t.setDaemon(true);
+        t.start();
+
+        assertThrows(CacheBuildFailedException.class, cache::get);
+        String value = cache.get();
+        assertTrue(ct.isInterrupted());
+        assertEquals("test", value);
+        assertEquals("test", cache.get());
     }
 
     private void expectedFail(ZkNotifyReloadCache<String> cache) {
