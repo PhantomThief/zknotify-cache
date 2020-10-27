@@ -56,6 +56,16 @@ class ZkNotifyReloadCacheTest {
     private static TestingServer testingServer;
     private static CuratorFramework curatorFramework;
 
+    // 用于static 中get cache这种场景测试，曾经把init逻辑放到另外线程执行，导致cache get block
+    private static final ReloadableCache<String> STATIC_CACHE = ZkNotifyReloadCache.<String> newBuilder()
+            .withCacheFactoryEx(s -> "test_static")
+            .withCuratorFactory(() -> curatorFramework)
+            .build();
+
+    static {
+        STATIC_CACHE.get();
+    }
+
     @BeforeAll
     static void init() throws Exception {
         testingServer = new TestingServer(true);
@@ -395,6 +405,11 @@ class ZkNotifyReloadCacheTest {
         assertTrue(ct.isInterrupted());
         assertEquals("test", value);
         assertEquals("test", cache.get());
+    }
+
+    @Test
+    void testStaticGet() {
+        assertEquals("test_static", STATIC_CACHE.get());
     }
 
     private void expectedFail(ZkNotifyReloadCache<String> cache) {
