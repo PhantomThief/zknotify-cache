@@ -32,6 +32,7 @@ import java.util.function.Supplier;
 import javax.annotation.CheckReturnValue;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.Logger;
@@ -62,6 +63,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     @Nullable
     private final ScheduledExecutorService executor;
     private final Runnable recycleListener;
+    private Future<?> postInitFuture;
 
     private volatile T cachedObject;
 
@@ -106,6 +108,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         return notifyZkPaths;
     }
 
+    @GuardedBy("this")
     private T init() {
         T obj;
         try {
@@ -121,23 +124,26 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         if (obj != null) {
-            // zk subscribe等操作放到另外的线程里执行，避免被 interrupt 之后，cache 构建整个失败
-            // cache build本身的逻辑由使用方保证能处理好Thread interrupt
-            SettableFuture<Void> future = SettableFuture.create();
-            Thread t = new Thread(() -> {
-                try {
-                    postCacheInit();
-                    future.set(null);
-                } catch (Throwable e) {
-                    future.setException(e);
-                }
-            });
-            t.setName("zkAutoReloadThread-postCacheInit-" + notifyZkPaths);
-            t.setDaemon(true);
-            t.start();
+            if (postInitFuture == null) {
+                // zk subscribe等操作放到另外的线程里执行，避免被 interrupt 之后，cache 构建整个失败
+                // cache build本身的逻辑由使用方保证能处理好Thread interrupt
+                SettableFuture<Void> future = SettableFuture.create();
+                Thread t = new Thread(() -> {
+                    try {
+                        postCacheInit();
+                        future.set(null);
+                    } catch (Throwable e) {
+                        future.setException(e);
+                    }
+                });
+                t.setName("zkAutoReloadThread-postCacheInit-" + notifyZkPaths);
+                t.setDaemon(true);
+                t.start();
+                postInitFuture = future;
+            }
 
             try {
-                future.get();
+                postInitFuture.get();
             } catch (InterruptedException e) {
                 // 被interrupt了也不能抛异常，直接设置interrupt标记，然cache构建就失败了
                 // FixMe: Cache第一次注册zk，如果被打断了，就没有机会知道最终是注册成功还是注册失败了，后面的cache是可以直接返回值的
