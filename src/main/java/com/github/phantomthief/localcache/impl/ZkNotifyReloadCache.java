@@ -17,10 +17,7 @@ import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -35,6 +32,7 @@ import java.util.function.Supplier;
 import javax.annotation.CheckReturnValue;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.Logger;
@@ -45,7 +43,6 @@ import com.github.phantomthief.localcache.ReloadableCache;
 import com.github.phantomthief.zookeeper.broadcast.Broadcaster;
 import com.github.phantomthief.zookeeper.broadcast.ZkBroadcaster;
 import com.google.common.base.Throwables;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
@@ -66,15 +63,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     @Nullable
     private final ScheduledExecutorService executor;
     private final Runnable recycleListener;
-    /**
-     * Cache init有时需要在另外的线程执行，由initCacheExecutor提供。也可以是directExecutor
-     */
-    private final Executor initCacheExecutor;
-
-    /**
-     * 存储init的Future，以避免初次get被interrupt之后，下次get又创建线程执行一次init
-     */
-    private Future<T> initFuture;
+    private Future<?> postInitFuture;
 
     private volatile T cachedObject;
 
@@ -88,7 +77,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         this.scheduleRunDuration = builder.scheduleRunDuration;
         this.executor = builder.executor;
         this.recycleListener = builder.recycleListener;
-        this.initCacheExecutor = builder.initCacheExecutor;
     }
 
     public static <T> ZkNotifyReloadCache<T> of(CacheFactory<T> cacheFactory, String notifyZkPath,
@@ -109,39 +97,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         if (cachedObject == null) {
             synchronized (ZkNotifyReloadCache.this) {
                 if (cachedObject == null) {
-                    // init 逻辑改为在另外的线程执行，以避免被caller线程的interrupt打断
-                    // 业务使用cache时，如果做了超时熔断并使用了interrupt，则可能造成cache永远都不能成功init，导致每次执行都init一次cache
-                    if (this.initFuture == null || this.initFuture.isDone()) {
-                        SettableFuture<T> future = SettableFuture.create();
-                        initCacheExecutor.execute(() -> {
-                            String originThreadName = Thread.currentThread().getName();
-                            try {
-                                Thread.currentThread().setName(originThreadName + "-reloadCacheInit-" + notifyZkPaths);
-                                future.set(this.init());
-                            } catch (Throwable e) {
-                                future.setException(e);
-                            } finally {
-                                Thread.currentThread().setName(originThreadName);
-                            }
-                        });
-                        this.initFuture = future;
-                    }
-
-                    try {
-                        cachedObject = this.initFuture.get();
-                    } catch (InterruptedException e) {
-                        // 方法签名不能抛InterruptedException的情形下，抛CancellationException是可接受的一个方案
-                        // 目前JDK里面也是这么处理的
-                        CancellationException ce = new CancellationException("cancel by Thread interrupt");
-                        ce.initCause(e);
-                        throw ce;
-                    } catch (ExecutionException e) {
-                        if (e.getCause() != null) {
-                            // 应该总是走会到这里，抛出来原始的异常，保持和原先在caller线程直接抛异常的行为一致
-                            Throwables.throwIfUnchecked(e.getCause());
-                        }
-                        throw new CacheBuildFailedException("failed to build cache", e);
-                    }
+                    cachedObject = init();
                 }
             }
         }
@@ -152,6 +108,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         return notifyZkPaths;
     }
 
+    @GuardedBy("this")
     private T init() {
         T obj;
         try {
@@ -167,84 +124,119 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         }
 
         if (obj != null) {
-            if (broadcaster != null && notifyZkPaths != null) {
-                notifyZkPaths.forEach(notifyZkPath -> {
-                    AtomicLong sleeping = new AtomicLong();
-                    AtomicLong lastNotifyTimestamp = new AtomicLong();
-                    broadcaster.subscribe(notifyZkPath, content -> {
-                        long timestamp;
-                        try {
-                            timestamp = Long.parseLong(content);
-                        } catch (Exception e) { // let error throw
-                            logger.warn("parse notify timestamp {} failed", content, e);
-                            timestamp = System.currentTimeMillis();
-                        }
-                        long lastNotify;
-                        do {
-                            lastNotify = lastNotifyTimestamp.get();
-                            if (lastNotify == timestamp) {
-                                logger.debug("notify with same timestamp {} with previous, skip", timestamp);
-                                return;
-                            }
-                        } while (!lastNotifyTimestamp.compareAndSet(lastNotify, timestamp));
-
-                        long deadline = sleeping.get();
-                        if (deadline > 0L) {
-                            logger.warn("ignore rebuild cache:{}, remaining sleep in:{}ms.",
-                                    notifyZkPath, (deadline - currentTimeMillis()));
-                            return;
-                        }
-                        long sleepFor = ofNullable(maxRandomSleepOnNotifyReload)
-                                .map(LongSupplier::getAsLong)
-                                .filter(it -> it > 0)
-                                .map(ThreadLocalRandom.current()::nextLong)
-                                .orElse(0L);
-                        sleeping.set(sleepFor + currentTimeMillis());
-                        // executor should not be null when enable notify
-                        executor.schedule(() -> {
-                            sleeping.set(0L);
-                            doRebuild();
-                        }, sleepFor, MILLISECONDS);
-                    });
-                });
-            }
-            if (scheduleRunDuration != null) {
-                ScheduledExecutorService scheduledExecutor = newScheduledThreadPool(1,
-                        new ThreadFactoryBuilder()
-                                .setPriority(MIN_PRIORITY)
-                                .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d")
-                                .build());
-                WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
-                AtomicReference<Future<?>> futureReference = new AtomicReference<>();
-                Runnable capturedRecycleListener = this.recycleListener;
-                Future<?> scheduleFuture = scheduleWithDynamicDelay(scheduledExecutor, scheduleRunDuration, () -> {
-                    ZkNotifyReloadCache thisCache = cacheReference.get();
-
-                    if (thisCache == null) {
-                        if (!scheduledExecutor.isShutdown()) {
-                            if (futureReference.get() != null) {
-                                // prevent from submitting next task
-                                futureReference.get().cancel(true);
-                            }
-                            // ZkNotifyReloadCache has been recycled
-                            scheduledExecutor.shutdownNow();
-                            logger.warn("ZkNotifyReloadCache is recycled, path: {}", this.notifyZkPaths);
-                            if (capturedRecycleListener != null) {
-                                try {
-                                    capturedRecycleListener.run();
-                                } catch (Throwable e) {
-                                    logger.error("run cache recycle listener error", e);
-                                }
-                            }
-                        }
-                        return;
+            if (postInitFuture == null) {
+                // zk subscribe等操作放到另外的线程里执行，避免被 interrupt 之后，cache 构建整个失败
+                // cache build本身的逻辑由使用方保证能处理好Thread interrupt
+                SettableFuture<Void> future = SettableFuture.create();
+                Thread t = new Thread(() -> {
+                    try {
+                        postCacheInit();
+                        future.set(null);
+                    } catch (Throwable e) {
+                        future.setException(e);
                     }
-                    thisCache.doRebuild();
                 });
-                futureReference.set(scheduleFuture);
+                t.setName("zkAutoReloadThread-postCacheInit-" + notifyZkPaths);
+                t.setDaemon(true);
+                t.start();
+                postInitFuture = future;
+            }
+
+            try {
+                postInitFuture.get();
+            } catch (InterruptedException e) {
+                // 被interrupt了也不能抛异常，直接设置interrupt标记，然cache构建就失败了
+                // FixMe: Cache第一次注册zk，如果被打断了，就没有机会知道最终是注册成功还是注册失败了，后面的cache是可以直接返回值的
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+                if (e.getCause() != null) {
+                    // 正常情况应该都是走到这个分支，直接抛出原始异常
+                    Throwables.throwIfUnchecked(e.getCause());
+                }
+                throw new CacheBuildFailedException("post cache init failed", e);
             }
         }
         return obj;
+    }
+
+    // zk注册，以及启动cache定时reload等逻辑
+    private void postCacheInit() {
+        if (broadcaster != null && notifyZkPaths != null) {
+            notifyZkPaths.forEach(notifyZkPath -> {
+                AtomicLong sleeping = new AtomicLong();
+                AtomicLong lastNotifyTimestamp = new AtomicLong();
+                broadcaster.subscribe(notifyZkPath, content -> {
+                    long timestamp;
+                    try {
+                        timestamp = Long.parseLong(content);
+                    } catch (Exception e) { // let error throw
+                        logger.warn("parse notify timestamp {} failed", content, e);
+                        timestamp = System.currentTimeMillis();
+                    }
+                    long lastNotify;
+                    do {
+                        lastNotify = lastNotifyTimestamp.get();
+                        if (lastNotify == timestamp) {
+                            logger.debug("notify with same timestamp {} with previous, skip", timestamp);
+                            return;
+                        }
+                    } while (!lastNotifyTimestamp.compareAndSet(lastNotify, timestamp));
+
+                    long deadline = sleeping.get();
+                    if (deadline > 0L) {
+                        logger.warn("ignore rebuild cache:{}, remaining sleep in:{}ms.",
+                                notifyZkPath, (deadline - currentTimeMillis()));
+                        return;
+                    }
+                    long sleepFor = ofNullable(maxRandomSleepOnNotifyReload)
+                            .map(LongSupplier::getAsLong)
+                            .filter(it -> it > 0)
+                            .map(ThreadLocalRandom.current()::nextLong)
+                            .orElse(0L);
+                    sleeping.set(sleepFor + currentTimeMillis());
+                    // executor should not be null when enable notify
+                    executor.schedule(() -> {
+                        sleeping.set(0L);
+                        doRebuild();
+                    }, sleepFor, MILLISECONDS);
+                });
+            });
+        }
+        if (scheduleRunDuration != null) {
+            ScheduledExecutorService scheduledExecutor = newScheduledThreadPool(1,
+                    new ThreadFactoryBuilder()
+                            .setPriority(MIN_PRIORITY)
+                            .setNameFormat("zkAutoReloadThread-" + notifyZkPaths + "-%d")
+                            .build());
+            WeakReference<ZkNotifyReloadCache> cacheReference = new WeakReference<>(this);
+            AtomicReference<Future<?>> futureReference = new AtomicReference<>();
+            Runnable capturedRecycleListener = this.recycleListener;
+            Future<?> scheduleFuture = scheduleWithDynamicDelay(scheduledExecutor, scheduleRunDuration, () -> {
+                ZkNotifyReloadCache thisCache = cacheReference.get();
+
+                if (thisCache == null) {
+                    if (!scheduledExecutor.isShutdown()) {
+                        if (futureReference.get() != null) {
+                            // prevent from submitting next task
+                            futureReference.get().cancel(true);
+                        }
+                        // ZkNotifyReloadCache has been recycled
+                        scheduledExecutor.shutdownNow();
+                        logger.warn("ZkNotifyReloadCache is recycled, path: {}", this.notifyZkPaths);
+                        if (capturedRecycleListener != null) {
+                            try {
+                                capturedRecycleListener.run();
+                            } catch (Throwable e) {
+                                logger.error("run cache recycle listener error", e);
+                            }
+                        }
+                    }
+                    return;
+                }
+                thisCache.doRebuild();
+            });
+            futureReference.set(scheduleFuture);
+        }
     }
 
     private void doRebuild() {
@@ -328,10 +320,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         @Nullable
         private ScheduledExecutorService executor;
         private Runnable recycleListener;
-        /**
-         * Cache init有时需要在另外的线程执行，由initCacheExecutor提供。也可以是directExecutor
-         */
-        private Executor initCacheExecutor;
 
         @CheckReturnValue
         @Nonnull
@@ -460,18 +448,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             return this;
         }
 
-        /**
-         * 允许Cache 的init逻辑在另外的线程执行，以避免被caller 线程此interrupt影响。
-         * 此方法可以设置一个用来执行Cache初始化的Executor.
-         * @param executor 用来执行Cache初始化的ExecutorService, 不会被关闭
-         */
-        @CheckReturnValue
-        @Nonnull
-        public Builder<T> withInitCacheExecutor(Executor executor) {
-            this.initCacheExecutor = requireNonNull(executor);
-            return this;
-        }
-
         @Nonnull
         public ZkNotifyReloadCache<T> build() {
             ensure();
@@ -485,9 +461,6 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
                 if (executor == null) {
                     executor = newSingleThreadScheduledExecutor();
                 }
-            }
-            if (initCacheExecutor == null) {
-                initCacheExecutor = MoreExecutors.directExecutor();
             }
         }
     }

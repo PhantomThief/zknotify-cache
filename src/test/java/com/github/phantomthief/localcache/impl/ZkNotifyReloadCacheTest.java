@@ -8,8 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
@@ -18,10 +18,7 @@ import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,7 +34,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +55,16 @@ class ZkNotifyReloadCacheTest {
 
     private static TestingServer testingServer;
     private static CuratorFramework curatorFramework;
+
+    // 用于static 中get cache这种场景测试，曾经把init逻辑放到另外线程执行，导致cache get block
+    private static final ReloadableCache<String> STATIC_CACHE = ZkNotifyReloadCache.<String> newBuilder()
+            .withCacheFactoryEx(s -> "test_static")
+            .withCuratorFactory(() -> curatorFramework)
+            .build();
+
+    static {
+        STATIC_CACHE.get();
+    }
 
     @BeforeAll
     static void init() throws Exception {
@@ -369,26 +375,20 @@ class ZkNotifyReloadCacheTest {
         assertSame(IOException.class, e.getCause().getClass());
     }
 
-    private void expectedFail(ZkNotifyReloadCache<String> cache) {
-        CacheBuildFailedException exception1 = assertThrows(CacheBuildFailedException.class, cache::get);
-        assertSame(IOException.class, exception1.getCause().getClass());
-    }
-
     @Test
     void testInterruptFirstFailed() throws Throwable {
         CacheFactoryEx<String> cacheFactory = Mockito.mock(CacheFactoryEx.class);
         Mockito.when(cacheFactory.get(any())).then((Answer<String>) invocation -> {
-            Thread.sleep(100);
+            Uninterruptibles.sleepUninterruptibly(100, MILLISECONDS);
             throw new Exception();
         }).then((Answer<String>) invocation -> {
-            Thread.sleep(100);
+            Uninterruptibles.sleepUninterruptibly(50, MILLISECONDS);
             return "test";
         }).then((Answer<String>) invocation -> "shouldNotCalled");
 
         ReloadableCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
                 .withCacheFactoryEx(cacheFactory)
                 .withCuratorFactory(() -> curatorFramework)
-                .withInitCacheExecutor(Executors.newCachedThreadPool())
                 .build();
         Thread ct = Thread.currentThread();
         Thread t = new Thread(() -> {
@@ -400,58 +400,21 @@ class ZkNotifyReloadCacheTest {
         t.setDaemon(true);
         t.start();
 
-        // 验证interrupt的情况下，依然只有一个线程在执行init
-        for (int i = 0; i < 10; i++) {
-            long waitTime = i * 5;
-            Thread st = new Thread(() -> {
-                Uninterruptibles.sleepUninterruptibly(waitTime, MILLISECONDS);
-                Thread.currentThread().interrupt();
-                assertThrows(CancellationException.class, cache::get);
-            });
-            st.setDaemon(true);
-            st.start();
-        }
-
-        assertThrows(CancellationException.class, cache::get);
         assertThrows(CacheBuildFailedException.class, cache::get);
-        assertThrows(CancellationException.class, cache::get);
+        String value = cache.get();
+        assertTrue(ct.isInterrupted());
+        assertEquals("test", value);
         assertEquals("test", cache.get());
-        assertEquals("test", cache.get());
-        Uninterruptibles.sleepUninterruptibly(200, MILLISECONDS);
-        Mockito.verify(cacheFactory, times(2)).get(any());
     }
 
     @Test
-    void testInterruptDirect() throws Throwable {
-        // 默认使用direct executor，行为和原来一直，总是抛出CacheBuildFailedException，并且构建不成功
-        CacheFactoryEx<String> cacheFactory = Mockito.mock(CacheFactoryEx.class);
-        Mockito.when(cacheFactory.get(any())).then((Answer<String>) invocation -> {
-            Thread.sleep(100);
-            return "test1";
-        }).then((Answer<String>) invocation -> {
-            Thread.sleep(100);
-            return "test2";
-        }).then((Answer<String>) invocation -> "test3");
+    void testStaticGet() {
+        assertEquals("test_static", STATIC_CACHE.get());
+    }
 
-        ReloadableCache<String> cache = ZkNotifyReloadCache.<String> newBuilder()
-                .withCacheFactoryEx(cacheFactory)
-                .withCuratorFactory(() -> curatorFramework)
-                .build();
-        Thread ct = Thread.currentThread();
-        Thread t = new Thread(() -> {
-            Uninterruptibles.sleepUninterruptibly(50, MILLISECONDS);
-            ct.interrupt();
-            Uninterruptibles.sleepUninterruptibly(100, MILLISECONDS);
-            ct.interrupt();
-        });
-        t.setDaemon(true);
-        t.start();
-
-        assertThrows(CacheBuildFailedException.class, cache::get);
-        Uninterruptibles.sleepUninterruptibly(60, MILLISECONDS);
-        assertThrows(CacheBuildFailedException.class, cache::get);
-        Uninterruptibles.sleepUninterruptibly(100, MILLISECONDS);
-        assertEquals("test3", cache.get());
+    private void expectedFail(ZkNotifyReloadCache<String> cache) {
+        CacheBuildFailedException exception1 = assertThrows(CacheBuildFailedException.class, cache::get);
+        assertSame(IOException.class, exception1.getCause().getClass());
     }
 
     private String build(AtomicInteger count) {
