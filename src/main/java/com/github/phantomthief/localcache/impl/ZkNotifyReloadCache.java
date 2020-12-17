@@ -66,6 +66,7 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
     private Future<?> postInitFuture;
 
     private volatile T cachedObject;
+    private volatile boolean entered;
 
     private ZkNotifyReloadCache(Builder<T> builder) {
         this.cacheFactory = builder.cacheFactory;
@@ -97,7 +98,16 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
         if (cachedObject == null) {
             synchronized (ZkNotifyReloadCache.this) {
                 if (cachedObject == null) {
-                    cachedObject = init();
+                    if (entered) {
+                        logger.warn("发现循环引用，请不要在 ReloadableCache factory 内引用自身，如果希望取到之前的缓存值，请参考"
+                                + " com.github.phantomthief.localcache.CacheFactoryEx.get");
+                    }
+                    entered = true;
+                    try {
+                        cachedObject = init();
+                    } finally {
+                        entered = false;
+                    }
                 }
             }
         }
