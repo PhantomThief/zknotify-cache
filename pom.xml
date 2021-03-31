@@ -40,7 +40,7 @@
         <slf4j-api.version>1.7.14</slf4j-api.version>
         <curator.version>4.1.0</curator.version>
         <more-lambdas.version>0.1.25</more-lambdas.version>
-        <guava.version>28.1-jre</guava.version>
+        <guava.version>29.0-jre</guava.version>
         <jsr305.version>3.0.2</jsr305.version>
 
         <junit.version>5.6.2</junit.version>
