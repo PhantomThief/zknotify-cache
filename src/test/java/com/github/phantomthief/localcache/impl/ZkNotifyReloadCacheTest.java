@@ -13,13 +13,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,6 +25,7 @@ import java.util.function.LongSupplier;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.curator.retry.RetryNTimes;
 import org.apache.curator.test.TestingServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -405,6 +403,29 @@ class ZkNotifyReloadCacheTest {
         assertTrue(ct.isInterrupted());
         assertEquals("test", value);
         assertEquals("test", cache.get());
+    }
+
+    @Test
+    void testZkWatchFirstFailed() throws Throwable {
+        CacheFactoryEx<String> cacheFactory = prev -> "test";
+
+
+        try (TestingServer testingServer = new TestingServer(false);
+             CuratorFramework curatorFramework = CuratorFrameworkFactory.newClient(testingServer.getConnectString(),
+                     new RetryNTimes(3, 200))) {
+            curatorFramework.start();
+
+            ReloadableCache<String> cache = ZkNotifyReloadCache.<String>newBuilder()
+                    .withCacheFactoryEx(cacheFactory)
+                    .withCuratorFactory(() -> curatorFramework)
+                    .withNotifyZkPath("/test/123")
+                    .build();
+
+            assertThrows(Exception.class, cache::get);
+
+            testingServer.start();
+            assertEquals("test", cache.get());
+        }
     }
 
     @Test
