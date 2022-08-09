@@ -155,10 +155,13 @@ public class ZkNotifyReloadCache<T> implements ReloadableCache<T> {
             try {
                 postInitFuture.get();
             } catch (InterruptedException e) {
-                // 被interrupt了也不能抛异常，直接设置interrupt标记，然cache构建就失败了
+                // 被interrupt了也不能抛异常，直接设置interrupt标记，不然cache构建就失败了
                 // FixMe: Cache第一次注册zk，如果被打断了，就没有机会知道最终是注册成功还是注册失败了，后面的cache是可以直接返回值的
                 Thread.currentThread().interrupt();
             } catch (ExecutionException e) {
+                // 出现非InterruptedException的其他异常说明zk注册失败，注册线程已退出，
+                // 需要将postInitFuture设置为null，下次重新构建cache时才能重新执行zk注册逻辑
+                postInitFuture = null;
                 if (e.getCause() != null) {
                     // 正常情况应该都是走到这个分支，直接抛出原始异常
                     Throwables.throwIfUnchecked(e.getCause());
