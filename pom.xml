@@ -44,7 +44,7 @@
         <jsr305.version>3.0.2</jsr305.version>
 
         <junit.version>5.6.2</junit.version>
-        <logback-classic.version>1.2.3</logback-classic.version>
+        <logback-classic.version>1.2.13</logback-classic.version>
         <mockito-core.version>2.23.4</mockito-core.version>
 
         <maven-surefire-plugin.version>3.0.0-M4</maven-surefire-plugin.version>
